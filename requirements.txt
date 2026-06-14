@@ -1,0 +1,6 @@
+yt-dlp
+faster-whisper
+anthropic
+pyannote.audio
+torch
+playwright
