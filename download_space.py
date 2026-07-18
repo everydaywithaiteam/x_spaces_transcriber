@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-X Spaces Downloader, Transcriber, Diarizer, and Summarizer
+X Spaces Transcriber, Diarizer, and Summarizer
 
 Usage:
     python download_space.py <space_url> [options]
