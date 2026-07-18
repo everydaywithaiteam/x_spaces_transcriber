@@ -1,4 +1,4 @@
-# X Spaces Downloader
+# X Spaces Transcriber
 
 Automatically downloads X (Twitter) Spaces, transcribes them with Whisper, and generates summaries of a specific speaker's contributions using Claude.
 
@@ -67,7 +67,7 @@ State is tracked in `output/state.json` so the same Space is never processed twi
 ### Running daily via cron
 
 ```cron
-0 9 * * * cd /path/to/x_spaces_downloader && python check_and_run.py >> logs/pipeline.log 2>&1
+0 9 * * * cd /path/to/x_spaces_transcriber && python check_and_run.py >> logs/pipeline.log 2>&1
 ```
 
 ## Output

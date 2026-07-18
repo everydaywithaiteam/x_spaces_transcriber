@@ -23,7 +23,7 @@ Environment:
     SPACE_URL            Can set the Space URL via env var (useful for cron)
 
 Running daily via cron (example — runs at 9am):
-    0 9 * * * cd /path/to/x_spaces_downloader && SPACE_URL=https://x.com/i/spaces/... ANTHROPIC_API_KEY=sk-... python pipeline.py >> logs/pipeline.log 2>&1
+    0 9 * * * cd /path/to/x_spaces_transcriber && SPACE_URL=https://x.com/i/spaces/... ANTHROPIC_API_KEY=sk-... python pipeline.py >> logs/pipeline.log 2>&1
 
 Or with launchd on macOS — see README for setup.
 """
