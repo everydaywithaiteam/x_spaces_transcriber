@@ -15,12 +15,15 @@ Options:
     --model MODEL        Whisper model: tiny/base/small/medium (default: base)
     --output-dir DIR     Output directory (default: ./output)
     --cookies-from-browser BROWSER  Browser for cookies: chrome/firefox/safari
+    --cookies-file FILE   Netscape cookies.txt for x.com (preferred — see README).
+                          Defaults to ./cookies.txt or $COOKIES_FILE if present.
     --skip-if-exists     Skip if today's output already exists
 
 Environment:
     ANTHROPIC_API_KEY    Required for summarization
     HF_TOKEN             Required for speaker diarization (optional feature)
     SPACE_URL            Can set the Space URL via env var (useful for cron)
+    COOKIES_FILE         Path to a Netscape cookies.txt for x.com (see README)
 
 Running daily via cron (example — runs at 9am):
     0 9 * * * cd /path/to/x_spaces_transcriber && SPACE_URL=https://x.com/i/spaces/... ANTHROPIC_API_KEY=sk-... python pipeline.py >> logs/pipeline.log 2>&1
@@ -84,7 +87,8 @@ def save_run_record(output_dir: Path, space_id: str, meta: dict):
 
 # ── Pipeline steps ────────────────────────────────────────────────────────────
 
-def step_download(url: str, output_dir: Path, file_stem: str, cookies_from_browser: str = None) -> Path:
+def step_download(url: str, output_dir: Path, file_stem: str, cookies_from_browser: str = None,
+                   cookies_file: str = None) -> Path:
     import yt_dlp
 
     candidates = list(output_dir.glob(f"{file_stem}.*"))
@@ -99,7 +103,9 @@ def step_download(url: str, output_dir: Path, file_stem: str, cookies_from_brows
         "outtmpl": str(output_dir / f"{file_stem}.%(ext)s"),
         "quiet": True,
     }
-    if cookies_from_browser:
+    if cookies_file:
+        ydl_opts["cookiefile"] = cookies_file
+    elif cookies_from_browser:
         ydl_opts["cookiesfrombrowser"] = (cookies_from_browser,)
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -148,11 +154,11 @@ def step_summarize(transcript_path: Path, output_dir: Path, file_stem: str,
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
-def _find_space_via_twitter_api(account: str) -> Optional[str]:
+def _find_spaces_via_twitter_api(account: str) -> list:
     """Twitter API v2 lookup — requires TWITTER_BEARER_TOKEN in environment."""
     bearer = os.environ.get("TWITTER_BEARER_TOKEN")
     if not bearer:
-        return None
+        return []
 
     import urllib.request
     import urllib.parse
@@ -182,16 +188,18 @@ def _find_space_via_twitter_api(account: str) -> Optional[str]:
     data, _ = _get(f"/users/by/username/{account}")
     if not data or "data" not in data:
         log(f"Twitter API: could not look up @{account}")
-        return None
+        return []
     user_id = data["data"]["id"]
+
+    urls = []
 
     # Step 2: check for live / scheduled Spaces
     data, _ = _get("/spaces/by/creator_ids",
                    {"user_ids": user_id, "space.fields": "state,created_at"})
     if data and data.get("data"):
-        url = f"https://x.com/i/spaces/{data['data'][0]['id']}"
-        log(f"Found live/scheduled Space via Twitter API: {url}")
-        return url
+        for space in data["data"]:
+            urls.append(f"https://x.com/i/spaces/{space['id']}")
+        log(f"Found {len(urls)} live/scheduled Space(s) via Twitter API")
 
     # Step 3: search for recently ended Spaces
     data, _ = _get("/spaces/search", {
@@ -207,37 +215,26 @@ def _find_space_via_twitter_api(account: str) -> Optional[str]:
         for space in data["data"]:
             if users.get(space.get("creator_id"), "").lower() == account.lower():
                 url = f"https://x.com/i/spaces/{space['id']}"
-                log(f"Found recent Space via Twitter API: {url}")
-                return url
+                if url not in urls:
+                    urls.append(url)
 
-    log(f"Twitter API: no recent Spaces found for @{account}")
-    return None
+    if urls:
+        log(f"Found {len(urls)} Space(s) via Twitter API: {urls}")
+    else:
+        log(f"Twitter API: no recent Spaces found for @{account}")
+    return urls
 
 
-def _find_space_via_playwright(account: str) -> Optional[str]:
-    """Navigate to the account's /spaces tab using Playwright + Chrome cookies."""
-    try:
-        from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
-    except ImportError:
-        return None
+def _is_x_domain(domain: str) -> bool:
+    d = domain.lstrip(".")
+    return d in ("twitter.com", "x.com") or d.endswith(".twitter.com") or d.endswith(".x.com")
 
-    import http.cookiejar
 
-    # Extract Chrome cookies via yt-dlp's Python API (no subprocess PATH issues)
-    try:
-        import yt_dlp
-        ydl = yt_dlp.YoutubeDL({"cookiesfrombrowser": ("chrome",), "quiet": True})
-        jar = ydl.cookiejar
-        ydl.__exit__(None, None, None)
-    except Exception as e:
-        log(f"Playwright: cookie extraction failed — {e}")
-        return None
-
-    def _is_x_domain(domain: str) -> bool:
-        d = domain.lstrip(".")
-        return d in ("twitter.com", "x.com") or d.endswith(".twitter.com") or d.endswith(".x.com")
-
-    # WebKit timestamp epoch offset (microseconds between 1601-01-01 and 1970-01-01)
+def _pw_cookies_from_jar(jar, webkit_timestamps: bool = False) -> list:
+    """Convert a http.cookiejar-style jar into Playwright's add_cookies() format,
+    filtered to Twitter/X domains."""
+    # WebKit timestamp epoch offset (microseconds between 1601-01-01 and 1970-01-01) —
+    # only relevant for cookies read straight out of Chrome's SQLite store.
     _WEBKIT_OFFSET_US = 11_644_473_600_000_000
 
     pw_cookies = []
@@ -253,15 +250,60 @@ def _find_space_via_playwright(account: str) -> Optional[str]:
         }
         exp = c.expires
         if exp and exp > 0:
-            if exp > 10_000_000_000:  # WebKit microseconds — convert to Unix seconds
+            if webkit_timestamps and exp > 10_000_000_000:
                 exp = (exp - _WEBKIT_OFFSET_US) // 1_000_000
             if exp > 0:
                 entry["expires"] = exp
         pw_cookies.append(entry)
+    return pw_cookies
+
+
+def _find_spaces_via_playwright(account: str, cookies_file: str = None) -> list:
+    """Navigate to the account's /spaces tab using Playwright.
+
+    Cookies come from a Netscape-format cookies.txt export if provided (reliable —
+    see README), otherwise fall back to live Chrome decryption via yt-dlp's Python
+    API (can silently fail to decrypt sensitive cookies on newer Chrome versions
+    even when logged in).
+    """
+    try:
+        from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
+    except ImportError:
+        return []
+
+    if cookies_file and Path(cookies_file).exists():
+        import http.cookiejar
+        jar = http.cookiejar.MozillaCookieJar(cookies_file)
+        try:
+            jar.load(ignore_discard=True, ignore_expires=True)
+        except Exception as e:
+            log(f"Playwright: failed to load cookies file {cookies_file} — {e}")
+            return []
+        pw_cookies = _pw_cookies_from_jar(jar, webkit_timestamps=False)
+        source = f"cookies file ({cookies_file})"
+    else:
+        # Extract Chrome cookies via yt-dlp's Python API (no subprocess PATH issues)
+        try:
+            import yt_dlp
+            ydl = yt_dlp.YoutubeDL({"cookiesfrombrowser": ("chrome",), "quiet": True})
+            jar = ydl.cookiejar
+            ydl.__exit__(None, None, None)
+        except Exception as e:
+            log(f"Playwright: cookie extraction failed — {e}")
+            return []
+        pw_cookies = _pw_cookies_from_jar(jar, webkit_timestamps=True)
+        source = "Chrome"
 
     if not pw_cookies:
-        log("Playwright: no Twitter/X cookies found in Chrome — log in to x.com first")
-        return None
+        log(f"Playwright: no Twitter/X cookies found via {source} — log in to x.com first")
+        return []
+
+    if not any(c["name"] == "auth_token" for c in pw_cookies):
+        log(f"Playwright: only guest/anonymous X cookies found via {source} ({len(pw_cookies)} found, "
+            "no auth_token/ct0/twid). If you're logged in to x.com, this is likely Chrome's cookie "
+            "encryption blocking automated decryption (e.g. on newer Chrome versions) rather than an "
+            "actual logged-out session — a cookies.txt export is more reliable; see README.")
+        return []
 
     # Intercept AudioSpaceById requests — Twitter fires one per Space card in the timeline
     import urllib.parse
@@ -289,9 +331,9 @@ def _find_space_via_playwright(account: str) -> Optional[str]:
             page.wait_for_timeout(5000)  # let the SPA render and fire API calls
 
             if space_ids:
-                url = f"https://x.com/i/spaces/{space_ids[0]}"
-                log(f"Found Space via Playwright (intercepted {len(space_ids)} ids): {url}")
-                return url
+                urls = [f"https://x.com/i/spaces/{sid}" for sid in space_ids]
+                log(f"Found {len(urls)} Space(s) via Playwright: {urls}")
+                return urls
 
             log(f"Playwright: no AudioSpaceById calls fired for @{account} — no recent Spaces in timeline")
         except PWTimeout:
@@ -301,15 +343,17 @@ def _find_space_via_playwright(account: str) -> Optional[str]:
         finally:
             browser.close()
 
-    return None
+    return []
 
 
-def _find_space_via_ydlp(account: str, cookies_from_browser: str = None) -> Optional[str]:
+def _find_spaces_via_ydlp(account: str, cookies_from_browser: str = None, cookies_file: str = None) -> list:
     """Scrape the account's /spaces tab with yt-dlp as a fallback."""
     import yt_dlp
 
     ydl_opts = {"extract_flat": True, "quiet": True, "playlistend": 10}
-    if cookies_from_browser:
+    if cookies_file:
+        ydl_opts["cookiefile"] = cookies_file
+    elif cookies_from_browser:
         ydl_opts["cookiesfrombrowser"] = (cookies_from_browser,)
 
     for candidate in [
@@ -319,46 +363,61 @@ def _find_space_via_ydlp(account: str, cookies_from_browser: str = None) -> Opti
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(candidate, download=False)
+            found = []
             for entry in (info or {}).get("entries") or []:
                 for field in ("url", "webpage_url"):
                     m = re.search(r"https?://(?:x|twitter)\.com/i/spaces/([A-Za-z0-9]+)",
                                   entry.get(field) or "")
                     if m:
                         url = f"https://x.com/i/spaces/{m.group(1)}"
-                        log(f"Found Space via yt-dlp ({candidate}): {url}")
-                        return url
+                        if url not in found:
+                            found.append(url)
+                        break
+            if found:
+                log(f"Found {len(found)} Space(s) via yt-dlp ({candidate}): {found}")
+                return found
         except Exception as e:
             log(f"yt-dlp on {candidate}: {e}")
 
-    return None
+    return []
 
 
-def fetch_latest_space_url(account: str, cookies_from_browser: str = None) -> Optional[str]:
-    """Find the most recent Space from a Twitter/X account.
+def fetch_recent_space_urls(account: str, cookies_from_browser: str = None, cookies_file: str = None) -> list:
+    """Find recent Spaces from a Twitter/X account, most-recent-first.
 
-    Tries in order:
+    Tries in order, using whichever method returns results first:
       1. Twitter API v2  — set TWITTER_BEARER_TOKEN in .env
          (free app token from developer.twitter.com is sufficient)
-      2. yt-dlp /spaces tab scrape — works when --cookies-from-browser is set
+      2. Playwright scrape of the profile page (intercepts AudioSpaceById calls) —
+         uses cookies_file (a Netscape cookies.txt export) if given, else live
+         Chrome cookie decryption
+      3. yt-dlp /spaces tab scrape — works when cookies_file or
+         --cookies-from-browser is set
     """
-    url = _find_space_via_twitter_api(account)
-    if url:
-        return url
+    urls = _find_spaces_via_twitter_api(account)
+    if urls:
+        return urls
 
-    url = _find_space_via_playwright(account)
-    if url:
-        return url
+    urls = _find_spaces_via_playwright(account, cookies_file)
+    if urls:
+        return urls
 
-    url = _find_space_via_ydlp(account, cookies_from_browser)
-    if url:
-        return url
+    urls = _find_spaces_via_ydlp(account, cookies_from_browser, cookies_file)
+    if urls:
+        return urls
 
-    log("Auto-detection could not find a Space URL.")
-    log("  → Ensure you are logged in to x.com in Chrome (used for Playwright scraping)")
+    log("Auto-detection could not find any Space URLs.")
+    log("  → Ensure you are logged in to x.com (a cookies.txt export is more reliable than live Chrome — see README)")
     if not os.environ.get("TWITTER_BEARER_TOKEN"):
         log("  → Or add TWITTER_BEARER_TOKEN to .env (requires Twitter API Basic plan)")
     log("  → Or pass --url <space_url> directly")
-    return None
+    return []
+
+
+def fetch_latest_space_url(account: str, cookies_from_browser: str = None, cookies_file: str = None) -> Optional[str]:
+    """Find the single most recent Space from a Twitter/X account."""
+    urls = fetch_recent_space_urls(account, cookies_from_browser, cookies_file)
+    return urls[0] if urls else None
 
 
 def main():
@@ -378,6 +437,11 @@ def main():
                         help="Output directory (default: ./output)")
     parser.add_argument("--cookies-from-browser", metavar="BROWSER",
                         help="Load cookies from browser: chrome, firefox, safari")
+    _default_cookies_file = os.environ.get("COOKIES_FILE") or str(Path(__file__).parent / "cookies.txt")
+    parser.add_argument("--cookies-file", metavar="FILE",
+                        default=_default_cookies_file if Path(_default_cookies_file).exists() else None,
+                        help="Netscape-format cookies.txt for x.com (preferred over --cookies-from-browser; "
+                             "see README). Defaults to ./cookies.txt or $COOKIES_FILE if present.")
     parser.add_argument("--skip-if-exists", action="store_true",
                         help="Skip entire run if today's summary already exists")
     args = parser.parse_args()
@@ -394,7 +458,7 @@ def main():
     # Auto-detect latest Space if no URL given
     if not args.url:
         log(f"No URL provided — checking @{args.account} for latest Space...")
-        args.url = fetch_latest_space_url(args.account, args.cookies_from_browser)
+        args.url = fetch_latest_space_url(args.account, args.cookies_from_browser, args.cookies_file)
 
     if not args.url:
         log("No Space URL found. Nothing to process today.")
@@ -413,7 +477,7 @@ def main():
 
     try:
         # Step 1: Download
-        audio_path = step_download(args.url, output_dir, file_stem, args.cookies_from_browser)
+        audio_path = step_download(args.url, output_dir, file_stem, args.cookies_from_browser, args.cookies_file)
 
         # Step 2: Transcribe
         transcript_path = step_transcribe(audio_path, output_dir, file_stem, args.model)
