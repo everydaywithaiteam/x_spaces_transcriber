@@ -4,3 +4,4 @@ anthropic
 pyannote.audio
 torch
 playwright
+markdown

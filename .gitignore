@@ -1,4 +1,5 @@
 .env
+cookies.txt
 output/
 logs/
 __pycache__/
