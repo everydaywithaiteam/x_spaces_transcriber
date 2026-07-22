@@ -10,7 +10,7 @@ Environment:
     SMTP_PORT           SMTP port (default: 587)
     SMTP_USER           SMTP login / From address
     SMTP_APP_PASSWORD   Gmail App Password (myaccount.google.com/apppasswords)
-    EMAIL_TO            Recipient address (default: same as SMTP_USER)
+    EMAIL_TO            Recipient address(es), comma-separated (default: same as SMTP_USER)
 """
 
 import os
@@ -32,6 +32,7 @@ SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
 SMTP_USER = os.environ.get("SMTP_USER")
 SMTP_APP_PASSWORD = os.environ.get("SMTP_APP_PASSWORD")
 EMAIL_TO = os.environ.get("EMAIL_TO") or SMTP_USER
+EMAIL_TO_LIST = [addr.strip() for addr in EMAIL_TO.split(",")] if EMAIL_TO else []
 
 
 def send_summary_email(summary_path: Path, space_meta: dict) -> bool:
@@ -40,7 +41,7 @@ def send_summary_email(summary_path: Path, space_meta: dict) -> bool:
     space_meta: {"account", "speaker", "url", "space_id", "date"}
     Never raises — returns True on success, False on any failure (logged).
     """
-    if not SMTP_USER or not SMTP_APP_PASSWORD or not EMAIL_TO:
+    if not SMTP_USER or not SMTP_APP_PASSWORD or not EMAIL_TO_LIST:
         print("email_notify: SMTP not configured (SMTP_USER/SMTP_APP_PASSWORD/EMAIL_TO) — skipping")
         return False
 
@@ -73,16 +74,16 @@ def send_summary_email(summary_path: Path, space_meta: dict) -> bool:
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
         msg["From"] = SMTP_USER
-        msg["To"] = EMAIL_TO
+        msg["To"] = ", ".join(EMAIL_TO_LIST)
         msg.attach(MIMEText(md_text, "plain"))
         msg.attach(MIMEText(html, "html"))
 
         with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as server:
             server.starttls()
             server.login(SMTP_USER, SMTP_APP_PASSWORD)
-            server.sendmail(SMTP_USER, [EMAIL_TO], msg.as_string())
+            server.sendmail(SMTP_USER, EMAIL_TO_LIST, msg.as_string())
 
-        print(f"email_notify: sent '{subject}' to {EMAIL_TO}")
+        print(f"email_notify: sent '{subject}' to {', '.join(EMAIL_TO_LIST)}")
         return True
 
     except Exception as e:
