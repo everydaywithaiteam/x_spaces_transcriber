@@ -37,7 +37,7 @@ SMTP_HOST=smtp.gmail.com             # Required for email delivery
 SMTP_PORT=587
 SMTP_USER=youraddress@gmail.com      # Gmail address used to send
 SMTP_APP_PASSWORD=xxxx xxxx xxxx xxxx
-EMAIL_TO=pkamela@gmail.com           # Where summaries get sent
+EMAIL_TO=pkamela@gmail.com           # Where summaries get sent (comma-separate for multiple recipients)
 ```
 
 Get a free Twitter Bearer Token at [developer.twitter.com](https://developer.twitter.com/en/portal/dashboard) — create a project → app → Keys and Tokens → Bearer Token.
