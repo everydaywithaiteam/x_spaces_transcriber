@@ -16,6 +16,25 @@ Outputs per Space: `.m4a` audio, `.txt` transcript, `_summary.md` summary, `_run
 
 `check_and_run.py` tracks every successfully processed Space in `output/state.json`, so if a scheduled run is missed (e.g. the laptop was off), the next run catches up on every new Space since the last one processed — not just the latest — bounded by the ~10 most recent Spaces X exposes on the account's profile page.
 
+## Pipeline
+
+```text
+                   +---------------------------------------------------------------------------------------------------------------------------------------+
+                   |                        check_and_run.py -- scheduled catch-up; retries each stage independently, on a schedule                        |
+                   +---------------------------------------------------------------------------------------------------------------------------------------+
+
+                   +------------------+   +------------------+   +------------------+   +------------------+   +------------------+   +------------------+
+New Space          |   1. Download    |-->|  2. Transcribe   |-->|   3. Summarize   |-->|    4. Deliver    |-->|  5. Alert  NEW   |-->|  6. Archive NEW  |
+detected on        |      yt-dlp      |   |  faster-whisper  |   |    Claude API    |   | email_notify.py  |   | ticker_alerts.py |   |  notion_sync.py  |
+@account   -->     +------------------+   +------------------+   +------------------+   +---------+--------+   +---------+--------+   +---------+--------+
+                                                                                                    |                      |                      |
+                                                                                               your inbox            priority ping         Notion database
+
+                   NEW = shipped in v2.0 (ticker watchlist alerts + Notion sync)
+```
+
+A polished, interactive (light/dark) version of this same diagram is at [pipeline_diagram.html](pipeline_diagram.html).
+
 ## Setup
 
 ### Requirements
