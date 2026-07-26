@@ -57,8 +57,14 @@ their reasoning and any supporting data or context they gave, not just the concl
 Any specific trades, entries, exits, or position changes @{speaker} mentioned, with their rationale.
 
 ## Stocks & Tickers Mentioned
-Every ticker/stock @{speaker} mentioned with context: what they said about it, their stance (bullish/bearish/neutral), \
-and any price levels or catalysts they cited.
+List every publicly-traded ticker @{speaker} mentioned. Use EXACTLY this format, one ticker per \
+bullet line (if a single discussion covers multiple tickers, e.g. two nuclear plays, give each \
+its own line — do not combine tickers on one line):
+- **$TICKER** — stance (bullish/bearish/neutral) — one-sentence context: what they said, any \
+price levels or catalysts cited
+Only use a real, uppercase market ticker after a literal `$`. Skip pre-IPO/private companies, \
+ETF-less sector mentions, or anything without an actual public ticker symbol — describe those \
+in prose in another section instead if relevant.
 
 ## Key Questions & Themes
 The main topics @{speaker} drove the conversation around, with a brief description of each discussion.
@@ -88,7 +94,9 @@ Bullet points of the main topics covered.
 The most important insights and conclusions.
 
 ## Stocks & Tickers Mentioned
-Any stocks, tickers, or assets discussed.
+List every publicly-traded ticker discussed, one per bullet line, in exactly this format:
+- **$TICKER** — stance (bullish/bearish/neutral/unclear) — brief context
+Only tickers with a real public symbol; skip untickered/private/pre-IPO mentions.
 
 ## Notable Quotes
 Any particularly striking statements with approximate timestamps.

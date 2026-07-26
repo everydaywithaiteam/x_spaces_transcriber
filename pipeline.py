@@ -77,6 +77,42 @@ def make_file_stem(url: str, account: str) -> str:
     return f"{name}-{date}"
 
 
+def fetch_space_recorded_date(url: str, cookies_from_browser: str = None,
+                               cookies_file: str = None) -> Optional[str]:
+    """Return the date the Space was actually broadcast, as YYYY-MM-DD (local time).
+
+    Uses yt-dlp's metadata-only extraction: `release_timestamp` is the Space's
+    `started_at` (falling back to `scheduled_start`), i.e. when the recording
+    happened — not when we downloaded it. `timestamp` (`created_at`, when the
+    Space was first scheduled) is the last resort; it can be days earlier.
+
+    Returns None if metadata can't be fetched, so callers can fall back to the
+    processing date.
+    """
+    import yt_dlp
+
+    ydl_opts = {"quiet": True, "skip_download": True}
+    if cookies_file:
+        ydl_opts["cookiefile"] = cookies_file
+    elif cookies_from_browser:
+        ydl_opts["cookiesfrombrowser"] = (cookies_from_browser,)
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+        ts = info.get("release_timestamp") or info.get("timestamp")
+        if ts:
+            return datetime.fromtimestamp(ts).strftime("%Y-%m-%d")
+        # Date-only fallbacks, already YYYYMMDD strings
+        for key in ("release_date", "upload_date"):
+            raw = info.get(key)
+            if raw and len(raw) == 8:
+                return f"{raw[0:4]}-{raw[4:6]}-{raw[6:8]}"
+    except Exception as e:
+        log(f"Could not fetch recording date for {url}: {e}")
+    return None
+
+
 def save_run_record(output_dir: Path, space_id: str, meta: dict):
     """Save a JSON record of this run for deduplication and history."""
     record_path = output_dir / f"{space_id}_run.json"

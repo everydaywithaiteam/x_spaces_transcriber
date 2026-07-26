@@ -1,0 +1,5 @@
+# One ticker per line. Lines starting with # are ignored.
+# Copy this file to watchlist.txt (gitignored) and fill in your own tickers.
+AAPL
+NVDA
+TSLA

@@ -9,6 +9,8 @@ Automatically downloads X (Twitter) Spaces, transcribes them with Whisper, and g
 3. **Transcribes** audio using faster-whisper with optional speaker diarization (pyannote)
 4. **Summarizes** the target speaker's contributions using Claude (Anthropic API)
 5. **Emails** each summary as a formatted HTML message
+6. **Alerts** you separately if a ticker on your watchlist gets mentioned (optional)
+7. **Syncs** each summary into a Notion database for a searchable archive (optional)
 
 Outputs per Space: `.m4a` audio, `.txt` transcript, `_summary.md` summary, `_run.json` metadata.
 
@@ -38,11 +40,45 @@ SMTP_PORT=587
 SMTP_USER=youraddress@gmail.com      # Gmail address used to send
 SMTP_APP_PASSWORD=xxxx xxxx xxxx xxxx
 EMAIL_TO=pkamela@gmail.com           # Where summaries get sent (comma-separate for multiple recipients)
+
+WATCHLIST_FILE=watchlist.txt         # Optional: path to a personal ticker watchlist (see below)
+
+NOTION_TOKEN=secret_...              # Optional: Notion integration token (see below)
+NOTION_DATABASE_ID=...               # Optional: Notion database ID (see below)
 ```
 
 Get a free Twitter Bearer Token at [developer.twitter.com](https://developer.twitter.com/en/portal/dashboard) — create a project → app → Keys and Tokens → Bearer Token.
 
 For email delivery, generate a Gmail **App Password** at [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords) (requires 2-factor authentication enabled on the Google account) and use it as `SMTP_APP_PASSWORD` — not your regular Gmail password. Without SMTP configured, the pipeline still runs normally; email sending is skipped and logged rather than failing the run.
+
+### Ticker watchlist alerts (optional)
+
+If you only care when a specific stock comes up, copy `watchlist.txt.example` to `watchlist.txt` and list your tickers, one per line (lines starting with `#` are ignored):
+
+```
+AAPL
+NVDA
+TSLA
+```
+
+After each Space is summarized, its "Stocks & Tickers Mentioned" section is checked against `watchlist.txt`. Any match triggers a short, separate priority email (e.g. "🔔 $NVDA mentioned — StocksOnSpaces 2026-07-21") in addition to the full summary email — so a match doesn't get buried in a long read. `watchlist.txt` is gitignored (personal data) and re-read fresh on every run, so editing it takes effect on the next scheduled run. Without it configured (or if it's empty/missing), watchlist alerts are skipped and logged, same as unconfigured SMTP.
+
+### Notion sync (optional)
+
+Every generated summary can also be pushed into a Notion database as its own page — a searchable, filterable archive instead of markdown files sitting in `output/`. One-time setup:
+
+1. Create an integration at [notion.so/my-integrations](https://www.notion.so/my-integrations) and copy its **Internal Integration Token** into `NOTION_TOKEN`.
+2. Create a Notion database with these properties, named exactly:
+   - `Name` (title — the default title property)
+   - `Date` (date)
+   - `Account` (text)
+   - `Speaker` (text)
+   - `URL` (url)
+   - `Tickers` (multi-select)
+3. Share the database with your integration (`•••` menu on the database → Connections → add your integration).
+4. Copy the database ID out of the database's URL (the 32-character ID segment) into `NOTION_DATABASE_ID`.
+
+Without `NOTION_TOKEN`/`NOTION_DATABASE_ID` configured, Notion sync is skipped and logged rather than failing the run — same behavior as unconfigured SMTP or an unconfigured watchlist.
 
 ### Space discovery: cookies.txt (recommended)
 
@@ -104,7 +140,7 @@ output/
   <space_id>.txt           # full transcript
   <space_id>_summary.md    # speaker summary
   <space_id>_run.json      # metadata (duration, model, tokens, etc.)
-  state.json               # tracks processed Space IDs and per-space email delivery status
+  state.json               # tracks processed Space IDs and per-space delivery/sync status
 ```
 
 `state.json` schema:
@@ -124,13 +160,24 @@ output/
       "email_sent": true,
       "email_sent_at": "2026-07-18T12:41:02+00:00",
       "email_attempts": 1,
-      "email_last_error": null
+      "email_last_error": null,
+      "tickers_mentioned": ["AAPL", "NVDA"],
+      "watchlist_matches": ["NVDA"],
+      "watchlist_alert_sent": true,
+      "watchlist_alert_sent_at": "2026-07-18T12:41:05+00:00",
+      "watchlist_alert_attempts": 1,
+      "watchlist_alert_last_error": null,
+      "notion_synced": true,
+      "notion_synced_at": "2026-07-18T12:41:07+00:00",
+      "notion_page_id": "1a2b3c4d-...",
+      "notion_sync_attempts": 1,
+      "notion_sync_last_error": null
     }
   }
 }
 ```
 
-A Space is added to `processed` only once download, transcription, and summarization all succeed — a failed pipeline run is retried next time automatically. Email delivery status is tracked separately per Space, so a bounced/failed send is retried on the next run without redoing any of the pipeline work.
+A Space is added to `processed` only once download, transcription, and summarization all succeed — a failed pipeline run is retried next time automatically. Email delivery, watchlist alerts, and Notion sync status are each tracked separately per Space, so a bounced/failed send or sync is retried on the next run without redoing any of the pipeline work. Spaces processed before these two features existed are marked as already-done (`watchlist_alert_sent`/`notion_synced: true`) on migration, so upgrading doesn't trigger a burst of retroactive alerts or Notion pages.
 
 ## Notes
 
@@ -138,3 +185,5 @@ A Space is added to `processed` only once download, transcription, and summariza
 - Without `HF_TOKEN`, the pipeline still transcribes but cannot attribute segments by speaker.
 - If the Twitter API is unavailable, the pipeline falls back to Playwright (using `cookies.txt` if present, otherwise local Chrome cookies) and then yt-dlp for Space discovery.
 - Email delivery (`email_notify.py`) renders each `_summary.md` to HTML via the `markdown` package and sends it over SMTP with STARTTLS; it never raises — a misconfigured or failing SMTP setup is logged and skipped rather than breaking the pipeline run.
+- Ticker extraction (`ticker_alerts.py`) depends on Claude following the `- **$TICKER** — stance — context` bullet format requested in `summarize.py`'s prompts; summaries generated before this format was introduced won't parse and simply yield no tickers.
+- Notion sync (`notion_sync.py`) talks to the Notion REST API directly via `urllib` (no extra dependency) and converts each summary's headings/bullets into Notion blocks, paginating in batches of 100 for longer summaries.

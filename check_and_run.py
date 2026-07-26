@@ -45,9 +45,12 @@ LOG_DIR    = BASE_DIR / "logs"
 sys.path.insert(0, str(BASE_DIR))
 from pipeline import (
     fetch_recent_space_urls, extract_space_id, make_file_stem,
+    fetch_space_recorded_date,
     step_download, step_transcribe, step_summarize, save_run_record, log,
 )
 from email_notify import send_summary_email
+from ticker_alerts import extract_tickers, match_watchlist, send_watchlist_alert
+from notion_sync import sync_summary_to_notion
 
 
 def now_iso() -> str:
@@ -61,12 +64,46 @@ def _extract_date(file_stem: str) -> str:
     return m.group(1) if m else ""
 
 
+def _display_date(entry: dict) -> str:
+    """The date shown to readers: when the Space was recorded.
+
+    Falls back to the date baked into the file stem (the processing date) for
+    older entries and whenever X's metadata was unavailable — that's the same
+    thing only when a Space is processed the day it aired, which a catch-up run
+    over a backlog is precisely not.
+    """
+    return entry.get("recorded_date") or _extract_date(entry["file_stem"])
+
+
+def _inert_feature_fields() -> dict:
+    """Default watchlist-alert/Notion-sync fields for spaces that predate these
+    features — marked as already-done so nothing fires retroactively."""
+    return {
+        "tickers_mentioned": [],
+        "watchlist_matches": [],
+        "watchlist_alert_sent": True,
+        "watchlist_alert_sent_at": None,
+        "watchlist_alert_attempts": 0,
+        "watchlist_alert_last_error": None,
+        "notion_synced": True,
+        "notion_synced_at": None,
+        "notion_page_id": None,
+        "notion_sync_attempts": 0,
+        "notion_sync_last_error": None,
+    }
+
+
 def load_state() -> dict:
     """Load state, migrating from the old single-pointer schema (or building
     it from scratch out of existing output/*_run.json files) if needed."""
     if STATE_FILE.exists():
         state = json.loads(STATE_FILE.read_text())
         if state.get("schema_version") == 2 and "processed" in state:
+            for entry in state["processed"].values():
+                for key, default in _inert_feature_fields().items():
+                    entry.setdefault(key, default)
+                entry.setdefault("recorded_date", None)
+                entry.setdefault("recorded_date_checked", False)
             return state
     else:
         state = {}
@@ -97,12 +134,40 @@ def load_state() -> dict:
             "email_sent_at": None,
             "email_attempts": 0,
             "email_last_error": None,
+            "recorded_date": None,
+            "recorded_date_checked": False,
+            **_inert_feature_fields(),
         }
 
     if processed:
         log(f"State migration: seeded {len(processed)} previously-processed space(s) from run records")
 
     return {"schema_version": 2, "last_run": None, "processed": processed}
+
+
+def backfill_recorded_dates(state: dict, cookies_from_browser: str = None,
+                             cookies_file: str = None) -> int:
+    """Fill in `recorded_date` for spaces processed before it was tracked.
+
+    Runs at most once per space (`recorded_date_checked` is set either way, so a
+    Space that's since been deleted from X doesn't get re-fetched every run).
+    """
+    stale = [(sid, e) for sid, e in state["processed"].items()
+             if not e.get("recorded_date_checked")]
+    if not stale:
+        return 0
+
+    log(f"Backfilling recording dates for {len(stale)} space(s)...")
+    filled = 0
+    for space_id, entry in stale:
+        recorded = fetch_space_recorded_date(entry.get("url", ""), cookies_from_browser, cookies_file)
+        entry["recorded_date"] = recorded
+        entry["recorded_date_checked"] = True
+        if recorded:
+            filled += 1
+    save_state(state)
+    log(f"Backfill complete: {filled}/{len(stale)} resolved")
+    return filled
 
 
 def save_state(state: dict):
@@ -142,6 +207,9 @@ def main():
 
     if args.cookies_file:
         log(f"Using cookies file: {args.cookies_file}")
+
+    if not args.dry_run:
+        backfill_recorded_dates(state, "chrome", args.cookies_file)
     urls = fetch_recent_space_urls(args.account, cookies_from_browser="chrome", cookies_file=args.cookies_file)
     log(f"Discovered {len(urls)} recent Space(s) on the profile")
 
@@ -171,6 +239,10 @@ def main():
 
         log(f"Processing {space_id} ({file_stem})...")
         try:
+            recorded_date = fetch_space_recorded_date(url, "chrome", args.cookies_file)
+            if recorded_date:
+                log(f"  recorded {recorded_date}")
+
             audio_path = step_download(url, OUTPUT_DIR, file_stem, "chrome", args.cookies_file)
             transcript_path = step_transcribe(audio_path, OUTPUT_DIR, file_stem, args.model)
             summary_path = step_summarize(transcript_path, OUTPUT_DIR, file_stem,
@@ -182,12 +254,28 @@ def main():
                 "summary": str(summary_path), "status": "success",
             })
 
+            tickers_mentioned = extract_tickers(summary_path.read_text(encoding="utf-8"))
+            watchlist_matches = match_watchlist(tickers_mentioned)
+
             state["processed"][space_id] = {
                 "url": url, "account": args.account, "speaker": speaker,
                 "file_stem": file_stem, "summary_path": str(summary_path),
                 "processed_at": now_iso(),
+                "recorded_date": recorded_date,
+                "recorded_date_checked": True,
                 "email_sent": False, "email_sent_at": None,
                 "email_attempts": 0, "email_last_error": None,
+                "tickers_mentioned": tickers_mentioned,
+                "watchlist_matches": watchlist_matches,
+                "watchlist_alert_sent": not watchlist_matches,
+                "watchlist_alert_sent_at": None,
+                "watchlist_alert_attempts": 0,
+                "watchlist_alert_last_error": None,
+                "notion_synced": False,
+                "notion_synced_at": None,
+                "notion_page_id": None,
+                "notion_sync_attempts": 0,
+                "notion_sync_last_error": None,
             }
             save_state(state)
             log(f"✓ Processed {space_id}")
@@ -207,7 +295,7 @@ def main():
                 "speaker": entry["speaker"],
                 "url": entry["url"],
                 "space_id": space_id,
-                "date": _extract_date(entry["file_stem"]),
+                "date": _display_date(entry),
             })
             entry["email_attempts"] = entry.get("email_attempts", 0) + 1
             if ok:
@@ -216,6 +304,50 @@ def main():
                 entry["email_last_error"] = None
             else:
                 entry["email_last_error"] = "send failed — see log"
+            save_state(state)
+
+        pending_watchlist = [(sid, entry) for sid, entry in state["processed"].items()
+                              if not entry.get("watchlist_alert_sent") and entry.get("watchlist_matches")]
+        if pending_watchlist:
+            log(f"Sending {len(pending_watchlist)} pending watchlist alert(s)...")
+        for space_id, entry in pending_watchlist:
+            ok = send_watchlist_alert(Path(entry["summary_path"]), {
+                "account": entry["account"],
+                "speaker": entry["speaker"],
+                "url": entry["url"],
+                "space_id": space_id,
+                "date": _display_date(entry),
+                "summary_path": entry["summary_path"],
+            }, entry["watchlist_matches"])
+            entry["watchlist_alert_attempts"] = entry.get("watchlist_alert_attempts", 0) + 1
+            if ok:
+                entry["watchlist_alert_sent"] = True
+                entry["watchlist_alert_sent_at"] = now_iso()
+                entry["watchlist_alert_last_error"] = None
+            else:
+                entry["watchlist_alert_last_error"] = "send failed — see log"
+            save_state(state)
+
+        pending_notion = [(sid, entry) for sid, entry in state["processed"].items()
+                           if not entry.get("notion_synced")]
+        if pending_notion:
+            log(f"Syncing {len(pending_notion)} pending summary(ies) to Notion...")
+        for space_id, entry in pending_notion:
+            page_id = sync_summary_to_notion(Path(entry["summary_path"]), {
+                "account": entry["account"],
+                "speaker": entry["speaker"],
+                "url": entry["url"],
+                "space_id": space_id,
+                "date": _display_date(entry),
+            }, entry.get("tickers_mentioned", []))
+            entry["notion_sync_attempts"] = entry.get("notion_sync_attempts", 0) + 1
+            if page_id:
+                entry["notion_synced"] = True
+                entry["notion_synced_at"] = now_iso()
+                entry["notion_page_id"] = page_id
+                entry["notion_sync_last_error"] = None
+            else:
+                entry["notion_sync_last_error"] = "sync failed — see log"
             save_state(state)
 
     state["last_run"] = now_iso()
