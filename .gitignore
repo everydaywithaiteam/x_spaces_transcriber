@@ -1,8 +1,12 @@
 .env
 cookies.txt
+watchlist.txt
 output/
 logs/
 __pycache__/
 *.pyc
 .DS_Store
 .claude/
+
+# YouTube video planning docs — internal, not part of the project
+yt_video_outline*.md
