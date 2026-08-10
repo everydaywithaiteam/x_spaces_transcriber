@@ -109,9 +109,82 @@ Transcript:
 {transcript}
 """
 
+# Used for transcripts that already carry speaker names (e.g. a Zoom .vtt).
+# Because attribution is given rather than inferred, the host-identification
+# step is dropped and the model is told to rely on the labels instead of
+# guessing. Section headings match SUMMARY_PROMPT exactly — ticker_alerts.py
+# and notion_sync.py parse "Stocks & Tickers Mentioned" out of the output.
+LABELED_SUMMARY_PROMPT = """This is a transcript of a "{show}" livestream hosted by {speaker}.
+
+Each line is formatted as `[HH:MM:SS] Speaker Name: text`. The speaker labels are \
+reliable — attribute statements using them rather than inferring who is talking.
+
+{focus_instruction}
+
+Note on transcript quality: this is machine-generated speech-to-text, so ticker symbols \
+and company names are sometimes mis-transcribed (e.g. "in video" for NVIDIA/NVDA, "AMB" \
+for AMD, "sales force" for Salesforce). Where context makes the intended ticker \
+unambiguous, use the correct symbol. Where it does not, say so rather than guessing.
+
+Format your response as:
+
+## Overview
+4-6 sentence summary covering the main themes, market context, and tone of the episode.
+
+## Market Takes & Insights
+Detailed bullet points of {speaker}'s key views, predictions, and analysis. For each point \
+include their reasoning and any supporting data or context they gave, not just the conclusion.
+
+## Trades & Portfolio Moves
+Any specific trades, entries, exits, or position changes {speaker} mentioned, with their rationale.
+
+## Stocks & Tickers Mentioned
+List every publicly-traded ticker {speaker} mentioned. Use EXACTLY this format, one ticker per \
+bullet line (if a single discussion covers multiple tickers, e.g. two nuclear plays, give each \
+its own line — do not combine tickers on one line):
+- **$TICKER** — stance (bullish/bearish/neutral) — one-sentence context: what they said, any \
+price levels or catalysts cited
+Only use a real, uppercase market ticker after a literal `$`. Skip pre-IPO/private companies, \
+ETF-less sector mentions, or anything without an actual public ticker symbol — describe those \
+in prose in another section instead if relevant.
+
+## Key Questions & Themes
+The main topics {speaker} drove the conversation around, with a brief description of each discussion.
+{guest_section}
+## Notable Quotes
+3-5 direct quotes from {speaker} that best capture their perspective or were particularly \
+insightful. Use the real timestamp from the start of the line the quote came from.
+
+---
+Transcript:
+{transcript}
+"""
+
+
+# Filled into LABELED_SUMMARY_PROMPT. A solo broadcast (one presenter, questions
+# taken from a text channel rather than voice) has no second speaker to quote, so
+# the Guest Highlights section is dropped entirely rather than left to be answered
+# with an invented or empty response.
+_FOCUS_MULTI = """Summarize **only {speaker}'s contributions** — their market takes, insights, \
+questions, and conclusions. Be thorough and detailed — do not condense or omit points, \
+capture the full substance of what they said."""
+
+_FOCUS_SOLO = """{speaker} is the only speaker on this recording — it is a solo broadcast, and \
+any questions came from a text channel rather than out loud. Summarize the full episode: \
+their market takes, insights, and conclusions. Be thorough and detailed — do not condense \
+or omit points, capture the full substance of what they said."""
+
+_GUEST_SECTION = """
+## Guest Highlights
+Key points made by other named speakers that {speaker} reacted to or built on, with {speaker}'s \
+response. Use their actual names from the transcript.
+"""
+
 
 def summarize(transcript_path: Path, speaker: str = None, space_url: str = None,
-              output_path: Path = None, model: str = "claude-opus-4-5") -> Path:
+              output_path: Path = None, model: str = "claude-opus-4-5",
+              labeled: bool = False, show: str = "Stock Talk Weekly",
+              solo: bool = False) -> Path:
     import anthropic
 
     api_key = os.environ.get("ANTHROPIC_API_KEY")
@@ -130,7 +203,13 @@ def summarize(transcript_path: Path, speaker: str = None, space_url: str = None,
         print(f"Truncating transcript to {max_chars:,} chars...")
         transcript = transcript[:max_chars] + "\n\n[... transcript truncated ...]"
 
-    if speaker:
+    if labeled and speaker:
+        focus = (_FOCUS_SOLO if solo else _FOCUS_MULTI).format(speaker=speaker)
+        guest = "" if solo else _GUEST_SECTION.format(speaker=speaker)
+        prompt = LABELED_SUMMARY_PROMPT.format(
+            speaker=speaker, show=show, transcript=transcript,
+            focus_instruction=focus, guest_section=guest)
+    elif speaker:
         prompt = SUMMARY_PROMPT.format(speaker=speaker, transcript=transcript)
     else:
         prompt = GENERIC_PROMPT.format(transcript=transcript)
@@ -148,11 +227,13 @@ def summarize(transcript_path: Path, speaker: str = None, space_url: str = None,
 
     summary_text = message.content[0].text
 
-    header = "# X Space Summary\n\n"
+    # Labelled transcripts come from named-speaker sources (Zoom), where the
+    # speaker is a person's name rather than an X handle — so no "@" prefix.
+    header = f"# {show} Summary\n\n" if labeled else "# X Space Summary\n\n"
     if space_url:
         header += f"**URL:** {space_url}\n"
     if speaker:
-        header += f"**Focus:** @{speaker}\n"
+        header += f"**Focus:** {speaker}\n" if labeled else f"**Focus:** @{speaker}\n"
     header += f"**Transcript:** {transcript_path.name}\n\n"
 
     output_path.write_text(header + summary_text, encoding="utf-8")

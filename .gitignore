@@ -3,6 +3,8 @@ cookies.txt
 watchlist.txt
 output/
 logs/
+# Zoom .vtt transcripts — third-party show content, not ours to redistribute
+transcripts_in/
 __pycache__/
 *.pyc
 .DS_Store

@@ -85,6 +85,31 @@ TSLA
 
 After each Space is summarized, its "Stocks & Tickers Mentioned" section is checked against `watchlist.txt`. When `WATCHLIST_ALERTS` is on, any match triggers a short, separate priority email (e.g. "🔔 $NVDA mentioned — StocksOnSpaces 2026-07-21") in addition to the full summary email — so a match doesn't get buried in a long read. `watchlist.txt` is gitignored (personal data) and re-read fresh on every run, so editing it takes effect on the next scheduled run. Without it configured (or if it's empty/missing), watchlist alerts are skipped and logged, same as unconfigured SMTP.
 
+### Zoom episodes from .vtt transcripts (optional)
+
+Zoom cloud recordings publish an **Audio Transcript** (`.vtt`) alongside the video. `zoom_ingest.py` summarizes an episode straight from that file, which skips the two most expensive stages of the pipeline entirely — there is no multi-GB video to download and no Whisper pass to run — and the transcript arrives with **speaker names already attached**, so Claude works from real attribution instead of inferring who the host is.
+
+1. Download an episode's `.vtt` from its Zoom recording page.
+2. Drop it into `transcripts_in/` (created on first run).
+3. Run it:
+
+```bash
+python zoom_ingest.py
+```
+
+Each file becomes `output/zoom-<date>-<title>.txt` (a merged, speaker-labelled transcript) and `output/zoom-<date>-<title>_summary.md`, then flows through the same email → watchlist alert → Notion delivery as a Space. Processed `.vtt` files move to `transcripts_in/processed/`; pass `--keep` to leave them where they are.
+
+The episode date comes from a `YYYY-MM-DD` (or `YYYYMMDD`) in the filename when present, otherwise the file's modification time — so both Zoom's own `GMT20260731-140233_Recording.transcript.vtt` and a hand-renamed `2026-08-07 Episode 36.vtt` work, as does a browser's `… (1).vtt` repeat download (which resolves to the same episode, so it can't be processed twice). Zoom's own names produce a title of just "Recording"; rename the file if you want the episode number in the summary. The focus speaker defaults to whoever has the most airtime, which for a hosted show is the host; override with `--speaker "Name"`.
+
+Zoom emits one cue per breath, so consecutive cues from the same speaker are merged into turns of up to a minute. On a **solo** broadcast — one presenter, questions taken from a text channel rather than out loud — the speaker never changes and rarely pauses, so that one-minute cap is what keeps a usable timestamp on each turn for the summary to cite. Single-speaker episodes are detected automatically and summarized with the "Guest Highlights" section dropped.
+
+```bash
+python zoom_ingest.py --dry-run                    # show what would be processed
+python vtt_ingest.py <file.vtt> --speakers         # speaking-time breakdown, no API calls
+```
+
+Because the transcript is machine-generated, ticker symbols are sometimes mis-transcribed ("in video" for NVDA). The summary prompt used for labelled transcripts tells Claude to correct those where context makes the intended ticker unambiguous, and to flag rather than guess where it doesn't. `transcripts_in/` is gitignored — it holds third-party show content.
+
 ### Notion sync (optional)
 
 Every generated summary can also be pushed into a Notion database as its own page — a searchable, filterable archive instead of markdown files sitting in `output/`. One-time setup:
