@@ -6,7 +6,12 @@ Extracts the tickers Claude found in a summary's "Stocks & Tickers Mentioned"
 section, checks them against a personal watchlist file, and sends a short
 priority email when there's a match — separate from the full summary email.
 
+Alerts are opt-in: without WATCHLIST_ALERTS turned on, tickers are still
+extracted (Notion sync uses them) but no alert email is sent.
+
 Environment:
+    WATCHLIST_ALERTS     Set to 1/true/yes/on to enable alert emails.
+                         Off by default — summary emails are unaffected.
     WATCHLIST_FILE       Path to a plain text watchlist, one ticker per line
                          (default: watchlist.txt, relative to this file's dir).
                          Lines starting with # are ignored. Missing/empty file
@@ -56,6 +61,14 @@ def extract_tickers(summary_text: str) -> list:
     return tickers
 
 
+_TRUTHY = {"1", "true", "yes", "on"}
+
+
+def alerts_enabled() -> bool:
+    """Whether watchlist alert emails should be sent. Off unless opted in."""
+    return os.environ.get("WATCHLIST_ALERTS", "").strip().lower() in _TRUTHY
+
+
 def load_watchlist() -> list:
     """Read the watchlist file fresh (no caching) — [] if unconfigured/missing."""
     watchlist_file = os.environ.get("WATCHLIST_FILE", "watchlist.txt")
@@ -100,7 +113,7 @@ def send_watchlist_alert(summary_path: Path, space_meta: dict, matched_tickers: 
     space_meta: {"account", "speaker", "url", "space_id", "date"}
     Never raises — returns True on success, False on any failure (logged).
     """
-    if not matched_tickers:
+    if not matched_tickers or not alerts_enabled():
         return False
 
     try:

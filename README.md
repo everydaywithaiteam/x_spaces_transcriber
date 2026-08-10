@@ -9,7 +9,7 @@ Automatically downloads X (Twitter) Spaces, transcribes them with Whisper, and g
 3. **Transcribes** audio using faster-whisper with optional speaker diarization (pyannote)
 4. **Summarizes** the target speaker's contributions using Claude (Anthropic API)
 5. **Emails** each summary as a formatted HTML message
-6. **Alerts** you separately if a ticker on your watchlist gets mentioned (optional)
+6. **Alerts** you separately if a ticker on your watchlist gets mentioned (opt-in, off by default)
 7. **Syncs** each summary into a Notion database for a searchable archive (optional)
 
 Outputs per Space: `.m4a` audio, `.txt` transcript, `_summary.md` summary, `_run.json` metadata.
@@ -60,6 +60,7 @@ SMTP_USER=youraddress@gmail.com      # Gmail address used to send
 SMTP_APP_PASSWORD=xxxx xxxx xxxx xxxx
 EMAIL_TO=pkamela@gmail.com           # Where summaries get sent (comma-separate for multiple recipients)
 
+WATCHLIST_ALERTS=false               # Optional: 1/true/yes/on to enable ticker alert emails (off by default)
 WATCHLIST_FILE=watchlist.txt         # Optional: path to a personal ticker watchlist (see below)
 
 NOTION_TOKEN=secret_...              # Optional: Notion integration token (see below)
@@ -70,7 +71,9 @@ Get a free Twitter Bearer Token at [developer.twitter.com](https://developer.twi
 
 For email delivery, generate a Gmail **App Password** at [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords) (requires 2-factor authentication enabled on the Google account) and use it as `SMTP_APP_PASSWORD` — not your regular Gmail password. Without SMTP configured, the pipeline still runs normally; email sending is skipped and logged rather than failing the run.
 
-### Ticker watchlist alerts (optional)
+### Ticker watchlist alerts (opt-in, off by default)
+
+Alert emails are disabled unless you set `WATCHLIST_ALERTS=true`. With them off you still get the full summary email for every Space, and tickers are still extracted for the Notion `Tickers` property — only the extra alert email is suppressed.
 
 If you only care when a specific stock comes up, copy `watchlist.txt.example` to `watchlist.txt` and list your tickers, one per line (lines starting with `#` are ignored):
 
@@ -80,7 +83,32 @@ NVDA
 TSLA
 ```
 
-After each Space is summarized, its "Stocks & Tickers Mentioned" section is checked against `watchlist.txt`. Any match triggers a short, separate priority email (e.g. "🔔 $NVDA mentioned — StocksOnSpaces 2026-07-21") in addition to the full summary email — so a match doesn't get buried in a long read. `watchlist.txt` is gitignored (personal data) and re-read fresh on every run, so editing it takes effect on the next scheduled run. Without it configured (or if it's empty/missing), watchlist alerts are skipped and logged, same as unconfigured SMTP.
+After each Space is summarized, its "Stocks & Tickers Mentioned" section is checked against `watchlist.txt`. When `WATCHLIST_ALERTS` is on, any match triggers a short, separate priority email (e.g. "🔔 $NVDA mentioned — StocksOnSpaces 2026-07-21") in addition to the full summary email — so a match doesn't get buried in a long read. `watchlist.txt` is gitignored (personal data) and re-read fresh on every run, so editing it takes effect on the next scheduled run. Without it configured (or if it's empty/missing), watchlist alerts are skipped and logged, same as unconfigured SMTP.
+
+### Zoom episodes from .vtt transcripts (optional)
+
+Zoom cloud recordings publish an **Audio Transcript** (`.vtt`) alongside the video. `zoom_ingest.py` summarizes an episode straight from that file, which skips the two most expensive stages of the pipeline entirely — there is no multi-GB video to download and no Whisper pass to run — and the transcript arrives with **speaker names already attached**, so Claude works from real attribution instead of inferring who the host is.
+
+1. Download an episode's `.vtt` from its Zoom recording page.
+2. Drop it into `transcripts_in/` (created on first run).
+3. Run it:
+
+```bash
+python zoom_ingest.py
+```
+
+Each file becomes `output/zoom-<date>-<title>.txt` (a merged, speaker-labelled transcript) and `output/zoom-<date>-<title>_summary.md`, then flows through the same email → watchlist alert → Notion delivery as a Space. Processed `.vtt` files move to `transcripts_in/processed/`; pass `--keep` to leave them where they are.
+
+The episode date comes from a `YYYY-MM-DD` (or `YYYYMMDD`) in the filename when present, otherwise the file's modification time — so both Zoom's own `GMT20260731-140233_Recording.transcript.vtt` and a hand-renamed `2026-08-07 Episode 36.vtt` work, as does a browser's `… (1).vtt` repeat download (which resolves to the same episode, so it can't be processed twice). Zoom's own names produce a title of just "Recording"; rename the file if you want the episode number in the summary. The focus speaker defaults to whoever has the most airtime, which for a hosted show is the host; override with `--speaker "Name"`.
+
+Zoom emits one cue per breath, so consecutive cues from the same speaker are merged into turns of up to a minute. On a **solo** broadcast — one presenter, questions taken from a text channel rather than out loud — the speaker never changes and rarely pauses, so that one-minute cap is what keeps a usable timestamp on each turn for the summary to cite. Single-speaker episodes are detected automatically and summarized with the "Guest Highlights" section dropped.
+
+```bash
+python zoom_ingest.py --dry-run                    # show what would be processed
+python vtt_ingest.py <file.vtt> --speakers         # speaking-time breakdown, no API calls
+```
+
+Because the transcript is machine-generated, ticker symbols are sometimes mis-transcribed ("in video" for NVDA). The summary prompt used for labelled transcripts tells Claude to correct those where context makes the intended ticker unambiguous, and to flag rather than guess where it doesn't. `transcripts_in/` is gitignored — it holds third-party show content.
 
 ### Notion sync (optional)
 
@@ -196,7 +224,7 @@ output/
 }
 ```
 
-A Space is added to `processed` only once download, transcription, and summarization all succeed — a failed pipeline run is retried next time automatically. Email delivery, watchlist alerts, and Notion sync status are each tracked separately per Space, so a bounced/failed send or sync is retried on the next run without redoing any of the pipeline work. Spaces processed before these two features existed are marked as already-done (`watchlist_alert_sent`/`notion_synced: true`) on migration, so upgrading doesn't trigger a burst of retroactive alerts or Notion pages.
+A Space is added to `processed` only once download, transcription, and summarization all succeed — a failed pipeline run is retried next time automatically. Email delivery, watchlist alerts, and Notion sync status are each tracked separately per Space, so a bounced/failed send or sync is retried on the next run without redoing any of the pipeline work. Spaces processed before these two features existed are marked as already-done (`watchlist_alert_sent`/`notion_synced: true`) on migration, so upgrading doesn't trigger a burst of retroactive alerts or Notion pages. The same applies while `WATCHLIST_ALERTS` is off: matches are still recorded in `watchlist_matches`, but entries are written with `watchlist_alert_sent: true`, so turning alerts on later doesn't replay everything that came before.
 
 ## Notes
 
