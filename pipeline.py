@@ -36,6 +36,7 @@ import os
 import sys
 import json
 import re
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -47,6 +48,42 @@ if _env_file.exists():
         if _line.strip() and not _line.startswith("#") and "=" in _line:
             _k, _v = _line.split("=", 1)
             os.environ.setdefault(_k.strip(), _v.strip())
+
+# Homebrew and other common bin dirs that launchd does NOT put on PATH. Under
+# launchd the job only gets PATH=/usr/bin:/bin:/usr/sbin:/sbin, so yt-dlp fails
+# with "m3u8 download detected but ffmpeg could not be found" even though
+# ffmpeg is installed. Resolve it once here, for every entry point.
+_EXTRA_BIN_DIRS = ("/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin")
+
+
+def find_ffmpeg() -> Optional[str]:
+    """Absolute path to the ffmpeg binary, or None if it really isn't installed."""
+    found = shutil.which("ffmpeg")
+    if found:
+        return found
+    for _d in _EXTRA_BIN_DIRS:
+        candidate = os.path.join(_d, "ffmpeg")
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return None
+
+
+def ensure_ffmpeg_on_path() -> Optional[str]:
+    """Put ffmpeg's directory on PATH so yt-dlp and ffmpeg subprocesses find it.
+
+    Returns the directory containing ffmpeg, or None if ffmpeg is missing.
+    """
+    ffmpeg = find_ffmpeg()
+    if not ffmpeg:
+        return None
+    bin_dir = os.path.dirname(ffmpeg)
+    current = os.environ.get("PATH", "")
+    if bin_dir not in current.split(os.pathsep):
+        os.environ["PATH"] = os.pathsep.join([bin_dir, current]) if current else bin_dir
+    return bin_dir
+
+
+FFMPEG_DIR = ensure_ffmpeg_on_path()
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -133,11 +170,19 @@ def step_download(url: str, output_dir: Path, file_stem: str, cookies_from_brows
         log(f"Audio already exists: {existing[0]} — skipping download")
         return existing[0]
 
+    if not FFMPEG_DIR:
+        raise RuntimeError(
+            "ffmpeg not found — Spaces are m3u8 streams and cannot be downloaded "
+            "without it. Install with: brew install ffmpeg"
+        )
+
     log(f"Downloading Space ({file_stem})...")
     ydl_opts = {
         "format": "bestaudio/best",
         "outtmpl": str(output_dir / f"{file_stem}.%(ext)s"),
         "quiet": True,
+        # Explicit, so the download does not depend on the inherited PATH.
+        "ffmpeg_location": FFMPEG_DIR,
     }
     if cookies_file:
         ydl_opts["cookiefile"] = cookies_file

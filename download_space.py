@@ -38,6 +38,10 @@ if _env_file.exists():
             _k, _v = _line.split("=", 1)
             os.environ.setdefault(_k.strip(), _v.strip())
 
+# Resolve ffmpeg and put it on PATH (launchd/cron give a minimal PATH that
+# omits Homebrew, which makes yt-dlp fail on m3u8 Space streams).
+from pipeline import FFMPEG_DIR, find_ffmpeg  # noqa: E402
+
 
 def extract_space_id(url: str) -> str:
     match = re.search(r"/spaces/([A-Za-z0-9]+)", url)
@@ -49,11 +53,18 @@ def extract_space_id(url: str) -> str:
 def download_space(url: str, output_dir: Path, space_id: str, cookies_from_browser: str = None, cookies_file: str = None) -> Path:
     import yt_dlp
 
+    if not FFMPEG_DIR:
+        raise RuntimeError(
+            "ffmpeg not found — Spaces are m3u8 streams and cannot be downloaded "
+            "without it. Install with: brew install ffmpeg"
+        )
+
     ydl_opts = {
         "format": "bestaudio/best",
         "outtmpl": str(output_dir / f"{space_id}.%(ext)s"),
         "quiet": False,
         "no_warnings": False,
+        "ffmpeg_location": FFMPEG_DIR,
     }
 
     if cookies_from_browser:
@@ -97,8 +108,11 @@ def convert_to_wav(audio_path: Path) -> Path:
         print(f"      WAV already exists: {wav_path}")
         return wav_path
     print(f"      Converting to WAV: {wav_path}")
+    ffmpeg = find_ffmpeg()
+    if not ffmpeg:
+        raise RuntimeError("ffmpeg not found — install with: brew install ffmpeg")
     subprocess.run(
-        ["ffmpeg", "-y", "-i", str(audio_path), "-ar", "16000", "-ac", "1", str(wav_path)],
+        [ffmpeg, "-y", "-i", str(audio_path), "-ar", "16000", "-ac", "1", str(wav_path)],
         check=True, capture_output=True,
     )
     return wav_path
