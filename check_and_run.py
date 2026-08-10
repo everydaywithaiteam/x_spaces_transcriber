@@ -49,7 +49,7 @@ from pipeline import (
     step_download, step_transcribe, step_summarize, save_run_record, log,
 )
 from email_notify import send_summary_email
-from ticker_alerts import extract_tickers, match_watchlist, send_watchlist_alert
+from ticker_alerts import alerts_enabled, extract_tickers, match_watchlist, send_watchlist_alert
 from notion_sync import sync_summary_to_notion
 
 
@@ -267,7 +267,7 @@ def main():
                 "email_attempts": 0, "email_last_error": None,
                 "tickers_mentioned": tickers_mentioned,
                 "watchlist_matches": watchlist_matches,
-                "watchlist_alert_sent": not watchlist_matches,
+                "watchlist_alert_sent": not (watchlist_matches and alerts_enabled()),
                 "watchlist_alert_sent_at": None,
                 "watchlist_alert_attempts": 0,
                 "watchlist_alert_last_error": None,
@@ -306,8 +306,11 @@ def main():
                 entry["email_last_error"] = "send failed — see log"
             save_state(state)
 
+        # Matches stay recorded in watchlist_matches either way; with alerts off,
+        # entries are created with nothing pending, so re-enabling won't replay them.
         pending_watchlist = [(sid, entry) for sid, entry in state["processed"].items()
-                              if not entry.get("watchlist_alert_sent") and entry.get("watchlist_matches")]
+                              if not entry.get("watchlist_alert_sent") and entry.get("watchlist_matches")] \
+                            if alerts_enabled() else []
         if pending_watchlist:
             log(f"Sending {len(pending_watchlist)} pending watchlist alert(s)...")
         for space_id, entry in pending_watchlist:

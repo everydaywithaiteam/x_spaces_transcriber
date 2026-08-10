@@ -9,7 +9,7 @@ Automatically downloads X (Twitter) Spaces, transcribes them with Whisper, and g
 3. **Transcribes** audio using faster-whisper with optional speaker diarization (pyannote)
 4. **Summarizes** the target speaker's contributions using Claude (Anthropic API)
 5. **Emails** each summary as a formatted HTML message
-6. **Alerts** you separately if a ticker on your watchlist gets mentioned (optional)
+6. **Alerts** you separately if a ticker on your watchlist gets mentioned (opt-in, off by default)
 7. **Syncs** each summary into a Notion database for a searchable archive (optional)
 
 Outputs per Space: `.m4a` audio, `.txt` transcript, `_summary.md` summary, `_run.json` metadata.
@@ -60,6 +60,7 @@ SMTP_USER=youraddress@gmail.com      # Gmail address used to send
 SMTP_APP_PASSWORD=xxxx xxxx xxxx xxxx
 EMAIL_TO=pkamela@gmail.com           # Where summaries get sent (comma-separate for multiple recipients)
 
+WATCHLIST_ALERTS=false               # Optional: 1/true/yes/on to enable ticker alert emails (off by default)
 WATCHLIST_FILE=watchlist.txt         # Optional: path to a personal ticker watchlist (see below)
 
 NOTION_TOKEN=secret_...              # Optional: Notion integration token (see below)
@@ -70,7 +71,9 @@ Get a free Twitter Bearer Token at [developer.twitter.com](https://developer.twi
 
 For email delivery, generate a Gmail **App Password** at [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords) (requires 2-factor authentication enabled on the Google account) and use it as `SMTP_APP_PASSWORD` — not your regular Gmail password. Without SMTP configured, the pipeline still runs normally; email sending is skipped and logged rather than failing the run.
 
-### Ticker watchlist alerts (optional)
+### Ticker watchlist alerts (opt-in, off by default)
+
+Alert emails are disabled unless you set `WATCHLIST_ALERTS=true`. With them off you still get the full summary email for every Space, and tickers are still extracted for the Notion `Tickers` property — only the extra alert email is suppressed.
 
 If you only care when a specific stock comes up, copy `watchlist.txt.example` to `watchlist.txt` and list your tickers, one per line (lines starting with `#` are ignored):
 
@@ -80,7 +83,7 @@ NVDA
 TSLA
 ```
 
-After each Space is summarized, its "Stocks & Tickers Mentioned" section is checked against `watchlist.txt`. Any match triggers a short, separate priority email (e.g. "🔔 $NVDA mentioned — StocksOnSpaces 2026-07-21") in addition to the full summary email — so a match doesn't get buried in a long read. `watchlist.txt` is gitignored (personal data) and re-read fresh on every run, so editing it takes effect on the next scheduled run. Without it configured (or if it's empty/missing), watchlist alerts are skipped and logged, same as unconfigured SMTP.
+After each Space is summarized, its "Stocks & Tickers Mentioned" section is checked against `watchlist.txt`. When `WATCHLIST_ALERTS` is on, any match triggers a short, separate priority email (e.g. "🔔 $NVDA mentioned — StocksOnSpaces 2026-07-21") in addition to the full summary email — so a match doesn't get buried in a long read. `watchlist.txt` is gitignored (personal data) and re-read fresh on every run, so editing it takes effect on the next scheduled run. Without it configured (or if it's empty/missing), watchlist alerts are skipped and logged, same as unconfigured SMTP.
 
 ### Notion sync (optional)
 
@@ -196,7 +199,7 @@ output/
 }
 ```
 
-A Space is added to `processed` only once download, transcription, and summarization all succeed — a failed pipeline run is retried next time automatically. Email delivery, watchlist alerts, and Notion sync status are each tracked separately per Space, so a bounced/failed send or sync is retried on the next run without redoing any of the pipeline work. Spaces processed before these two features existed are marked as already-done (`watchlist_alert_sent`/`notion_synced: true`) on migration, so upgrading doesn't trigger a burst of retroactive alerts or Notion pages.
+A Space is added to `processed` only once download, transcription, and summarization all succeed — a failed pipeline run is retried next time automatically. Email delivery, watchlist alerts, and Notion sync status are each tracked separately per Space, so a bounced/failed send or sync is retried on the next run without redoing any of the pipeline work. Spaces processed before these two features existed are marked as already-done (`watchlist_alert_sent`/`notion_synced: true`) on migration, so upgrading doesn't trigger a burst of retroactive alerts or Notion pages. The same applies while `WATCHLIST_ALERTS` is off: matches are still recorded in `watchlist_matches`, but entries are written with `watchlist_alert_sent: true`, so turning alerts on later doesn't replay everything that came before.
 
 ## Notes
 
