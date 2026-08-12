@@ -18,6 +18,7 @@ Environment:
                          means alerts are skipped — not an error.
 """
 
+import json
 import os
 import re
 from pathlib import Path
@@ -62,6 +63,33 @@ def extract_tickers(summary_text: str) -> list:
 
 
 _TRUTHY = {"1", "true", "yes", "on"}
+
+
+def tickers_for_summary(summary_path: Path) -> list:
+    """Tickers for a summary, preferring the structured sidecar over the markdown.
+
+    summarize.py writes `<name>_summary.json` next to `<name>_summary.md` when
+    it runs with structured output, and that JSON is authoritative — the symbols
+    came out of a schema-validated field rather than a regex over prose.
+
+    The markdown path remains for summaries generated before structured output
+    (and if the sidecar is ever unreadable), so old entries keep working.
+    """
+    json_path = summary_path.with_suffix(".json")
+    if json_path.exists():
+        try:
+            data = json.loads(json_path.read_text(encoding="utf-8"))
+            seen, symbols = set(), []
+            for entry in data.get("tickers", []):
+                symbol = str(entry.get("symbol", "")).lstrip("$").upper().strip()
+                if symbol and symbol not in seen:
+                    seen.add(symbol)
+                    symbols.append(symbol)
+            return symbols
+        except (json.JSONDecodeError, OSError) as e:
+            print(f"ticker_alerts: could not read {json_path.name} ({e}) — "
+                  f"falling back to parsing the markdown")
+    return extract_tickers(summary_path.read_text(encoding="utf-8"))
 
 
 def alerts_enabled() -> bool:
