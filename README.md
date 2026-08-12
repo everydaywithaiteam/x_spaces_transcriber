@@ -6,13 +6,43 @@ Automatically downloads X (Twitter) Spaces, transcribes them with Whisper, and g
 
 1. **Detects** recent Spaces from a given X account (via Twitter API v2, Playwright, or yt-dlp)
 2. **Downloads** the Space audio with yt-dlp
-3. **Transcribes** audio using faster-whisper with optional speaker diarization (pyannote)
+3. **Transcribes** audio with Whisper `large-v3`, on the GPU via mlx-whisper (see below)
 4. **Summarizes** the target speaker's contributions using Claude (Anthropic API)
 5. **Emails** each summary as a formatted HTML message
 6. **Alerts** you separately if a ticker on your watchlist gets mentioned (opt-in, off by default)
 7. **Syncs** each summary into a Notion database for a searchable archive (optional)
 
-Outputs per Space: `.m4a` audio, `.txt` transcript, `_summary.md` summary, `_run.json` metadata.
+Outputs per Space: `.m4a` audio, `.txt` transcript, `_summary.md` summary, `_summary.json` structured summary, `_run.json` metadata.
+
+### Transcription on Apple Silicon
+
+Transcription runs through **mlx-whisper**, which uses the GPU and Neural Engine via Metal. The previous backend, faster-whisper, is built on CTranslate2 — which has no Metal backend and runs **CPU-only on Apple Silicon** regardless of the device you ask for. That made `large-v3` impractical, which is why the default used to be `base`: the model most likely to mishear a ticker ("NVDA" as "in video").
+
+The default is now `large-v3`. `--model` accepts `tiny`, `base`, `small`, `medium`, `large`, `large-v3`, `turbo` (~2× faster, slightly less accurate), or a full Hugging Face repo path:
+
+```bash
+python check_and_run.py --model turbo
+```
+
+Model weights download from Hugging Face on first use and are cached — `large-v3` is roughly 3 GB, `turbo` about half that. On a machine without mlx-whisper (any non-Apple-Silicon host), the pipeline automatically falls back to faster-whisper on CPU, so nothing breaks; it just runs the way it used to.
+
+If `watchlist.txt` exists, its tickers are passed to Whisper as an `initial_prompt`, biasing the decoder toward the symbols you actually track — the cheapest available fix for ticker mis-transcription.
+
+### Structured summaries
+
+Claude returns the summary as JSON against a fixed schema (`SUMMARY_SCHEMA` in [summarize.py](summarize.py)); the markdown you read is rendered from it. Tickers therefore come from a schema-validated `symbol` field rather than a regex over prose, which is what watchlist alerts and the Notion `Tickers` property are driven from — a formatting wobble can no longer silently drop a ticker from an alert.
+
+The `_summary.json` sidecar is authoritative for tickers. Summaries generated before this change have no sidecar, so [ticker_alerts.py](ticker_alerts.py) falls back to parsing the markdown and older entries keep working. Pass `structured=False` to `summarize()` for the old free-form behaviour.
+
+### Skipping delivery
+
+Both runners take `--no-deliver`, which processes and summarizes but sends no email, watchlist alert, or Notion sync. Pending sends simply stay queued for a later run. Use it when backfilling a batch you don't want landing in your inbox one message at a time:
+
+```bash
+python zoom_ingest.py --no-deliver
+```
+
+Delivery itself lives in [deliver.py](deliver.py) and is shared by both runners, driven off the same `output/state.json` — so a Zoom run also retries a Space email that failed earlier, and vice versa.
 
 `check_and_run.py` tracks every successfully processed Space in `output/state.json`, so if a scheduled run is missed (e.g. the laptop was off), the next run catches up on every new Space since the last one processed — not just the latest — bounded by the ~10 most recent Spaces X exposes on the account's profile page.
 
