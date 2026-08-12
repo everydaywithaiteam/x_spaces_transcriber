@@ -48,9 +48,8 @@ sys.path.insert(0, str(BASE_DIR))
 from pipeline import log, save_run_record
 from summarize import summarize
 from vtt_ingest import parse_cues, merge_cues, render, speaker_stats, has_speaker_labels
-from email_notify import send_summary_email
-from ticker_alerts import alerts_enabled, extract_tickers, match_watchlist, send_watchlist_alert
-from notion_sync import sync_summary_to_notion
+from ticker_alerts import alerts_enabled, match_watchlist, tickers_for_summary
+from deliver import deliver_pending
 
 DEFAULT_SHOW = "Stock Talk Weekly"
 
@@ -179,7 +178,7 @@ def process(vtt_path: Path, args, state: dict) -> bool:
             "status": "success",
         })
 
-        tickers_mentioned = extract_tickers(summary_path.read_text(encoding="utf-8"))
+        tickers_mentioned = tickers_for_summary(summary_path)
         watchlist_matches = match_watchlist(tickers_mentioned)
 
         state["processed"][episode_id] = {
@@ -220,68 +219,16 @@ def process(vtt_path: Path, args, state: dict) -> bool:
         return False
 
 
-def deliver(state: dict):
-    """Email / alert / Notion for anything still pending, Zoom or Space alike."""
-    def meta_for(entry_id, entry):
-        return {
-            "account": entry["account"], "speaker": entry["speaker"],
-            "url": entry.get("url"), "space_id": entry_id,
-            "date": entry.get("recorded_date") or "",
-        }
-
-    pending = [(i, e) for i, e in state["processed"].items() if not e.get("email_sent")]
-    if pending:
-        log(f"Sending {len(pending)} pending summary email(s)...")
-    for entry_id, entry in pending:
-        ok = send_summary_email(Path(entry["summary_path"]), meta_for(entry_id, entry))
-        entry["email_attempts"] = entry.get("email_attempts", 0) + 1
-        if ok:
-            entry["email_sent"], entry["email_sent_at"] = True, now_iso()
-            entry["email_last_error"] = None
-        else:
-            entry["email_last_error"] = "send failed — see log"
-        save_state(state)
-
-    pending_alerts = [(i, e) for i, e in state["processed"].items()
-                      if not e.get("watchlist_alert_sent") and e.get("watchlist_matches")] \
-                     if alerts_enabled() else []
-    if pending_alerts:
-        log(f"Sending {len(pending_alerts)} pending watchlist alert(s)...")
-    for entry_id, entry in pending_alerts:
-        meta = meta_for(entry_id, entry)
-        meta["summary_path"] = entry["summary_path"]
-        ok = send_watchlist_alert(Path(entry["summary_path"]), meta, entry["watchlist_matches"])
-        entry["watchlist_alert_attempts"] = entry.get("watchlist_alert_attempts", 0) + 1
-        if ok:
-            entry["watchlist_alert_sent"], entry["watchlist_alert_sent_at"] = True, now_iso()
-            entry["watchlist_alert_last_error"] = None
-        else:
-            entry["watchlist_alert_last_error"] = "send failed — see log"
-        save_state(state)
-
-    pending_notion = [(i, e) for i, e in state["processed"].items() if not e.get("notion_synced")]
-    if pending_notion:
-        log(f"Syncing {len(pending_notion)} summary/summaries to Notion...")
-    for entry_id, entry in pending_notion:
-        page_id = sync_summary_to_notion(Path(entry["summary_path"]),
-                                         meta_for(entry_id, entry),
-                                         entry.get("tickers_mentioned", []))
-        entry["notion_sync_attempts"] = entry.get("notion_sync_attempts", 0) + 1
-        if page_id:
-            entry["notion_synced"], entry["notion_synced_at"] = True, now_iso()
-            entry["notion_page_id"], entry["notion_sync_last_error"] = page_id, None
-        else:
-            entry["notion_sync_last_error"] = "sync failed — see log"
-        save_state(state)
-
-
 def main():
     parser = argparse.ArgumentParser(description="Summarize Zoom episodes from .vtt transcripts")
     parser.add_argument("--indir", default=str(INBOX_DIR), help="Folder holding .vtt files")
     parser.add_argument("--speaker", help="Speaker to focus on (default: most airtime)")
     parser.add_argument("--show", default=os.environ.get("ZOOM_SHOW_NAME", DEFAULT_SHOW))
-    parser.add_argument("--claude-model", default="claude-opus-4-5")
+    parser.add_argument("--claude-model", default="claude-opus-5")
     parser.add_argument("--dry-run", action="store_true", help="Report what would run, change nothing")
+    parser.add_argument("--no-deliver", action="store_true",
+                        help="Summarize only — skip email, watchlist alerts, and Notion sync. "
+                             "Useful for backfilling a batch without flooding your inbox.")
     parser.add_argument("--keep", action="store_true", help="Leave .vtt files in place after processing")
     args = parser.parse_args()
 
@@ -302,9 +249,11 @@ def main():
     for vtt_path in vtt_files:
         process(vtt_path, args, state)
 
-    if not args.dry_run:
-        deliver(state)
+    if not args.dry_run and not args.no_deliver:
+        deliver_pending(state, save_state, log)
         save_state(state)
+    elif args.no_deliver and not args.dry_run:
+        log("--no-deliver: skipping email/alerts/Notion — sends stay queued for a later run")
 
 
 if __name__ == "__main__":

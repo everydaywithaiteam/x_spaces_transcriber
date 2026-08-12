@@ -198,22 +198,81 @@ def step_download(url: str, output_dir: Path, file_stem: str, cookies_from_brows
     return audio_path
 
 
-def step_transcribe(audio_path: Path, output_dir: Path, file_stem: str, model_size: str = "base") -> Path:
-    from faster_whisper import WhisperModel
+# Whisper sizes → MLX model repos. mlx-whisper runs on the GPU and Neural Engine
+# via Metal; faster-whisper is built on CTranslate2, which has no Metal backend and
+# is CPU-only on Apple Silicon no matter what device you ask for. On this hardware
+# that made `large-v3` impractical, which is why the old default was `base` — the
+# model that most often mishears tickers ("NVDA" as "in video").
+_MLX_MODELS = {
+    "tiny":     "mlx-community/whisper-tiny",
+    "base":     "mlx-community/whisper-base",
+    "small":    "mlx-community/whisper-small",
+    "medium":   "mlx-community/whisper-medium",
+    "large":    "mlx-community/whisper-large-v3-mlx",
+    "large-v3": "mlx-community/whisper-large-v3-mlx",
+    # ~2x faster than large-v3 at slightly lower accuracy.
+    "turbo":    "mlx-community/whisper-large-v3-turbo",
+}
 
+
+def _ticker_hint_prompt(limit: int = 40) -> Optional[str]:
+    """Bias Whisper's decoder toward the tickers you actually care about.
+
+    Whisper accepts an `initial_prompt` as vocabulary context. Seeding it with
+    the watchlist makes correct ticker spellings materially more likely. The
+    prompt window is small (~224 tokens), so this is capped and degrades to
+    None when there's no watchlist.
+    """
+    try:
+        from ticker_alerts import load_watchlist
+        tickers = load_watchlist()
+    except Exception:
+        return None
+    if not tickers:
+        return None
+    return ("This is a stock market discussion. Tickers mentioned may include: "
+            + ", ".join(tickers[:limit]) + ".")
+
+
+def step_transcribe(audio_path: Path, output_dir: Path, file_stem: str,
+                    model_size: str = "large-v3") -> Path:
     transcript_path = output_dir / f"{file_stem}.txt"
     if transcript_path.exists():
         log(f"Transcript already exists: {transcript_path} — skipping transcription")
         return transcript_path
 
-    log(f"Transcribing audio (model={model_size})...")
-    model = WhisperModel(model_size, device="cpu", compute_type="int8")
-    segments, info = model.transcribe(str(audio_path), beam_size=5)
-    log(f"Detected language: {info.language}")
+    initial_prompt = _ticker_hint_prompt()
 
-    lines = []
-    for seg in segments:
-        lines.append(f"[{seg.start:.1f}s - {seg.end:.1f}s] {seg.text.strip()}")
+    try:
+        import mlx_whisper
+    except ImportError:
+        mlx_whisper = None
+
+    if mlx_whisper is not None:
+        # A full HF repo path passes through untouched; a bare size is mapped.
+        repo = model_size if "/" in model_size else _MLX_MODELS.get(model_size)
+        if repo is None:
+            raise ValueError(
+                f"Unknown Whisper model '{model_size}' — use one of "
+                f"{', '.join(_MLX_MODELS)} or a full Hugging Face repo path")
+        log(f"Transcribing audio with mlx-whisper (model={repo})...")
+        if initial_prompt:
+            log("  biasing decoder with watchlist tickers")
+        result = mlx_whisper.transcribe(
+            str(audio_path), path_or_hf_repo=repo, initial_prompt=initial_prompt)
+        log(f"Detected language: {result.get('language')}")
+        lines = [f"[{s['start']:.1f}s - {s['end']:.1f}s] {s['text'].strip()}"
+                 for s in result.get("segments", [])]
+    else:
+        # Non-Apple-Silicon (or mlx not installed): CPU via faster-whisper.
+        from faster_whisper import WhisperModel
+        fallback = model_size if model_size in ("tiny", "base", "small", "medium", "large") else "base"
+        log(f"mlx-whisper unavailable — falling back to faster-whisper on CPU (model={fallback})")
+        model = WhisperModel(fallback, device="cpu", compute_type="int8")
+        segments, info = model.transcribe(str(audio_path), beam_size=5,
+                                          initial_prompt=initial_prompt)
+        log(f"Detected language: {info.language}")
+        lines = [f"[{seg.start:.1f}s - {seg.end:.1f}s] {seg.text.strip()}" for seg in segments]
 
     transcript_path.write_text("\n".join(lines), encoding="utf-8")
     log(f"Transcript saved: {transcript_path} ({len(lines)} segments)")
@@ -221,7 +280,7 @@ def step_transcribe(audio_path: Path, output_dir: Path, file_stem: str, model_si
 
 
 def step_summarize(transcript_path: Path, output_dir: Path, file_stem: str,
-                   speaker: str, space_url: str, model: str = "claude-opus-4-5") -> Path:
+                   speaker: str, space_url: str, model: str = "claude-opus-5") -> Path:
     summary_path = output_dir / f"{file_stem}_summary.md"
     if summary_path.exists():
         log(f"Summary already exists: {summary_path} — skipping summarization")
@@ -509,11 +568,12 @@ def main():
                         help="Twitter account handle to watch (default: StocksOnSpaces)")
     parser.add_argument("--speaker", default=None,
                         help="Speaker handle for summary focus (default: same as --account)")
-    parser.add_argument("--model", default="base",
-                        choices=["tiny", "base", "small", "medium", "large"],
-                        help="Whisper model size (default: base)")
-    parser.add_argument("--claude-model", default="claude-opus-4-5",
-                        help="Claude model for summarization (default: claude-opus-4-5)")
+    parser.add_argument("--model", default="large-v3",
+                        help="Whisper model: tiny, base, small, medium, large, large-v3, "
+                             "turbo, or a full Hugging Face repo path (default: large-v3). "
+                             "Runs on the GPU via mlx-whisper when available.")
+    parser.add_argument("--claude-model", default="claude-opus-5",
+                        help="Claude model for summarization (default: claude-opus-5)")
     parser.add_argument("--output-dir", default="output",
                         help="Output directory (default: ./output)")
     parser.add_argument("--cookies-from-browser", metavar="BROWSER",
