@@ -24,7 +24,6 @@ decrypt sensitive session cookies on newer Chrome versions — see README.
 
 import json
 import os
-import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -48,31 +47,12 @@ from pipeline import (
     fetch_space_recorded_date,
     step_download, step_transcribe, step_summarize, save_run_record, log,
 )
-from email_notify import send_summary_email
-from ticker_alerts import alerts_enabled, extract_tickers, match_watchlist, send_watchlist_alert
-from notion_sync import sync_summary_to_notion
+from ticker_alerts import alerts_enabled, match_watchlist, tickers_for_summary
+from deliver import deliver_pending
 
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-
-def _extract_date(file_stem: str) -> str:
-    # Search anywhere, not just at the end — a disambiguated stem
-    # (<stem>-<space_id> from a same-day collision) has the date in the middle.
-    m = re.search(r"(\d{4}-\d{2}-\d{2})", file_stem)
-    return m.group(1) if m else ""
-
-
-def _display_date(entry: dict) -> str:
-    """The date shown to readers: when the Space was recorded.
-
-    Falls back to the date baked into the file stem (the processing date) for
-    older entries and whenever X's metadata was unavailable — that's the same
-    thing only when a Space is processed the day it aired, which a catch-up run
-    over a backlog is precisely not.
-    """
-    return entry.get("recorded_date") or _extract_date(entry["file_stem"])
 
 
 def _inert_feature_fields() -> dict:
@@ -179,13 +159,17 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description="Catch up on new Spaces for an X account and email each summary")
     parser.add_argument("--dry-run", action="store_true", help="Print actions without executing")
+    parser.add_argument("--no-deliver", action="store_true",
+                        help="Process only — skip email, watchlist alerts, and Notion sync. "
+                             "Pending sends stay queued for a later run.")
     parser.add_argument("--account", default="StocksOnSpaces", help="Twitter account handle to watch")
     parser.add_argument("--speaker", default=None, help="Speaker handle for summary focus (default: same as --account)")
-    parser.add_argument("--model", default="base",
-                        choices=["tiny", "base", "small", "medium", "large"],
-                        help="Whisper model size (default: base)")
-    parser.add_argument("--claude-model", default="claude-opus-4-5",
-                        help="Claude model for summarization (default: claude-opus-4-5)")
+    parser.add_argument("--model", default="large-v3",
+                        help="Whisper model: tiny, base, small, medium, large, large-v3, "
+                             "turbo, or a full Hugging Face repo path (default: large-v3). "
+                             "Runs on the GPU via mlx-whisper when available.")
+    parser.add_argument("--claude-model", default="claude-opus-5",
+                        help="Claude model for summarization (default: claude-opus-5)")
     _default_cookies_file = os.environ.get("COOKIES_FILE") or str(BASE_DIR / "cookies.txt")
     parser.add_argument("--cookies-file", metavar="FILE",
                         default=_default_cookies_file if Path(_default_cookies_file).exists() else None,
@@ -254,7 +238,7 @@ def main():
                 "summary": str(summary_path), "status": "success",
             })
 
-            tickers_mentioned = extract_tickers(summary_path.read_text(encoding="utf-8"))
+            tickers_mentioned = tickers_for_summary(summary_path)
             watchlist_matches = match_watchlist(tickers_mentioned)
 
             state["processed"][space_id] = {
@@ -284,74 +268,8 @@ def main():
             save_run_record(OUTPUT_DIR, space_id, {"url": url, "status": "failed", "error": str(e)})
             continue
 
-    if not args.dry_run:
-        pending = [(sid, entry) for sid, entry in state["processed"].items()
-                   if not entry.get("email_sent")]
-        if pending:
-            log(f"Sending {len(pending)} pending summary email(s)...")
-        for space_id, entry in pending:
-            ok = send_summary_email(Path(entry["summary_path"]), {
-                "account": entry["account"],
-                "speaker": entry["speaker"],
-                "url": entry["url"],
-                "space_id": space_id,
-                "date": _display_date(entry),
-            })
-            entry["email_attempts"] = entry.get("email_attempts", 0) + 1
-            if ok:
-                entry["email_sent"] = True
-                entry["email_sent_at"] = now_iso()
-                entry["email_last_error"] = None
-            else:
-                entry["email_last_error"] = "send failed — see log"
-            save_state(state)
-
-        # Matches stay recorded in watchlist_matches either way; with alerts off,
-        # entries are created with nothing pending, so re-enabling won't replay them.
-        pending_watchlist = [(sid, entry) for sid, entry in state["processed"].items()
-                              if not entry.get("watchlist_alert_sent") and entry.get("watchlist_matches")] \
-                            if alerts_enabled() else []
-        if pending_watchlist:
-            log(f"Sending {len(pending_watchlist)} pending watchlist alert(s)...")
-        for space_id, entry in pending_watchlist:
-            ok = send_watchlist_alert(Path(entry["summary_path"]), {
-                "account": entry["account"],
-                "speaker": entry["speaker"],
-                "url": entry["url"],
-                "space_id": space_id,
-                "date": _display_date(entry),
-                "summary_path": entry["summary_path"],
-            }, entry["watchlist_matches"])
-            entry["watchlist_alert_attempts"] = entry.get("watchlist_alert_attempts", 0) + 1
-            if ok:
-                entry["watchlist_alert_sent"] = True
-                entry["watchlist_alert_sent_at"] = now_iso()
-                entry["watchlist_alert_last_error"] = None
-            else:
-                entry["watchlist_alert_last_error"] = "send failed — see log"
-            save_state(state)
-
-        pending_notion = [(sid, entry) for sid, entry in state["processed"].items()
-                           if not entry.get("notion_synced")]
-        if pending_notion:
-            log(f"Syncing {len(pending_notion)} pending summary(ies) to Notion...")
-        for space_id, entry in pending_notion:
-            page_id = sync_summary_to_notion(Path(entry["summary_path"]), {
-                "account": entry["account"],
-                "speaker": entry["speaker"],
-                "url": entry["url"],
-                "space_id": space_id,
-                "date": _display_date(entry),
-            }, entry.get("tickers_mentioned", []))
-            entry["notion_sync_attempts"] = entry.get("notion_sync_attempts", 0) + 1
-            if page_id:
-                entry["notion_synced"] = True
-                entry["notion_synced_at"] = now_iso()
-                entry["notion_page_id"] = page_id
-                entry["notion_sync_last_error"] = None
-            else:
-                entry["notion_sync_last_error"] = "sync failed — see log"
-            save_state(state)
+    if not args.dry_run and not args.no_deliver:
+        deliver_pending(state, save_state, log)
 
     state["last_run"] = now_iso()
     save_state(state)
