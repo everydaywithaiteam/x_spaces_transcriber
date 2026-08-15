@@ -26,13 +26,15 @@ python check_and_run.py --model turbo
 
 Model weights download from Hugging Face on first use and are cached — `large-v3` is roughly 3 GB, `turbo` about half that. On a machine without mlx-whisper (any non-Apple-Silicon host), the pipeline automatically falls back to faster-whisper on CPU, so nothing breaks; it just runs the way it used to.
 
-If `watchlist.txt` exists, its tickers are passed to Whisper as an `initial_prompt`, biasing the decoder toward the symbols you actually track — the cheapest available fix for ticker mis-transcription.
+Why this couldn't be fixed with a flag, and what the model change actually bought, are laid out in [gpu_transcription_diagram.html](gpu_transcription_diagram.html).
+
+> **Not done here:** seeding Whisper's `initial_prompt` with the watchlist. It reads like an easy accuracy win, but measured against real audio it made large-v3 skip ahead and drop content — including the ticker mentions it was meant to protect. See the comment above `step_transcribe` in [pipeline.py](pipeline.py).
 
 ### Structured summaries
 
 Claude returns the summary as JSON against a fixed schema (`SUMMARY_SCHEMA` in [summarize.py](summarize.py)); the markdown you read is rendered from it. Tickers therefore come from a schema-validated `symbol` field rather than a regex over prose, which is what watchlist alerts and the Notion `Tickers` property are driven from — a formatting wobble can no longer silently drop a ticker from an alert.
 
-The `_summary.json` sidecar is authoritative for tickers. Summaries generated before this change have no sidecar, so [ticker_alerts.py](ticker_alerts.py) falls back to parsing the markdown and older entries keep working. Pass `structured=False` to `summarize()` for the old free-form behaviour.
+The two designs are compared in [structured_outputs_diagram.html](structured_outputs_diagram.html). The `_summary.json` sidecar is authoritative for tickers. Summaries generated before this change have no sidecar, so [ticker_alerts.py](ticker_alerts.py) falls back to parsing the markdown and older entries keep working. Pass `structured=False` to `summarize()` for the old free-form behaviour.
 
 ### Skipping delivery
 
@@ -126,6 +128,8 @@ After each Space is summarized, its "Stocks & Tickers Mentioned" section is chec
 ### Zoom episodes from .vtt transcripts (optional)
 
 Zoom cloud recordings publish an **Audio Transcript** (`.vtt`) alongside the video. `zoom_ingest.py` summarizes an episode straight from that file, which skips the two most expensive stages of the pipeline entirely — there is no multi-GB video to download and no Whisper pass to run — and the transcript arrives with **speaker names already attached**, so Claude works from real attribution instead of inferring who the host is.
+
+Why the transcript rather than the recording: [vtt_vs_download_diagram.html](vtt_vs_download_diagram.html) — and if you're wondering why yt-dlp can't simply download a passcode-protected Zoom recording, [zoom_failure_diagram.html](zoom_failure_diagram.html) walks through where it breaks.
 
 1. Download an episode's `.vtt` from its Zoom recording page.
 2. Drop it into `transcripts_in/` (created on first run).
