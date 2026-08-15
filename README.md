@@ -49,18 +49,26 @@ Delivery itself lives in [deliver.py](deliver.py) and is shared by both runners,
 ## Pipeline
 
 ```text
-                   +---------------------------------------------------------------------------------------------------------------------------------------+
-                   |                        check_and_run.py -- scheduled catch-up; retries each stage independently, on a schedule                        |
-                   +---------------------------------------------------------------------------------------------------------------------------------------+
+  SOURCE A -- check_and_run.py (scheduled)          SOURCE B -- zoom_ingest.py (watched folder)
+  +------------------+   +------------------+       +------------------+   +------------------+
+  |   1. Download    |-->|  2. Transcribe   |       |    1. Parse      |-->|  2. (no ASR)     |
+  |      yt-dlp      |   | mlx-whisper GPU  |       |  vtt_ingest.py   |   |  already text    |
+  |   ~100 MB .m4a   |   |  large-v3   NEW  |       |  408 cues -> 69  |   | speaker-labelled |
+  +------------------+   +---------+--------+       +------------------+   +---------+--------+
+                                   |                                                 |
+                                   +------------------+   +----------------------+---+
+                                                      |   |
+                                            both produce a transcript
+                                                      v   v
+  +------------------+   +------------------+   +------------------+   +------------------+
+  |   3. Summarize   |-->|    4. Deliver    |-->|     5. Alert     |-->|    6. Archive    |
+  |  Claude Opus 5   |   |   deliver.py     |   | ticker_alerts.py |   |  notion_sync.py  |
+  | structured  NEW  |   | labelled subject |   |                  |   |                  |
+  +------------------+   +---------+--------+   +---------+--------+   +---------+--------+
+                                   |                      |                      |
+                              your inbox            priority ping         Notion database
 
-                   +------------------+   +------------------+   +------------------+   +------------------+   +------------------+   +------------------+
-New Space          |   1. Download    |-->|  2. Transcribe   |-->|   3. Summarize   |-->|    4. Deliver    |-->|  5. Alert  NEW   |-->|  6. Archive NEW  |
-detected on        |      yt-dlp      |   |  faster-whisper  |   |    Claude API    |   | email_notify.py  |   | ticker_alerts.py |   |  notion_sync.py  |
-@account   -->     +------------------+   +------------------+   +------------------+   +---------+--------+   +---------+--------+   +---------+--------+
-                                                                                                    |                      |                      |
-                                                                                               your inbox            priority ping         Notion database
-
-                   NEW = shipped in v2.0 (ticker watchlist alerts + Notion sync)
+  NEW = shipped in v2.1 (Zoom .vtt source, GPU transcription, structured summaries)
 ```
 
 A polished, interactive (light/dark) version of this same diagram is at [pipeline_diagram.html](pipeline_diagram.html).

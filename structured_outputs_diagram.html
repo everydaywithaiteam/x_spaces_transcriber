@@ -1,0 +1,622 @@
+<title>Markdown regex vs JSON schema — X Spaces Transcriber</title>
+<style>
+  :root {
+    --bg: #f5f2ea;
+    --bg-grid: rgba(32, 29, 24, 0.05);
+    --surface: #ffffff;
+    --surface-2: #efe9db;
+    --border: rgba(28, 24, 18, 0.14);
+    --border-strong: rgba(28, 24, 18, 0.28);
+    --text: #201c15;
+    --text-muted: #6b6558;
+    --text-faint: #948d7d;
+    --accent: #a8671c;
+    --accent-strong: #7d4c12;
+    --accent-soft: rgba(168, 103, 28, 0.14);
+    --accent-2: #2f7a72;
+    --accent-2-soft: rgba(47, 122, 114, 0.14);
+    --new-chip-bg: #a8671c;
+    --new-chip-text: #fff8ec;
+    --shadow: 0 1px 2px rgba(28,24,18,0.04), 0 8px 24px -12px rgba(28,24,18,0.18);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161b;
+      --bg-grid: rgba(255, 255, 255, 0.045);
+      --surface: #1c1f26;
+      --surface-2: #22262e;
+      --border: rgba(255, 255, 255, 0.10);
+      --border-strong: rgba(255, 255, 255, 0.20);
+      --text: #edeef0;
+      --text-muted: #9aa0ab;
+      --text-faint: #6c7280;
+      --accent: #e0a24d;
+      --accent-strong: #f2bd73;
+      --accent-soft: rgba(224, 162, 77, 0.14);
+      --accent-2: #5fc2b6;
+      --accent-2-soft: rgba(95, 194, 182, 0.14);
+      --new-chip-bg: #e0a24d;
+      --new-chip-text: #1a1305;
+      --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 12px 32px -14px rgba(0,0,0,0.55);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14161b;
+    --bg-grid: rgba(255, 255, 255, 0.045);
+    --surface: #1c1f26;
+    --surface-2: #22262e;
+    --border: rgba(255, 255, 255, 0.10);
+    --border-strong: rgba(255, 255, 255, 0.20);
+    --text: #edeef0;
+    --text-muted: #9aa0ab;
+    --text-faint: #6c7280;
+    --accent: #e0a24d;
+    --accent-strong: #f2bd73;
+    --accent-soft: rgba(224, 162, 77, 0.14);
+    --accent-2: #5fc2b6;
+    --accent-2-soft: rgba(95, 194, 182, 0.14);
+    --new-chip-bg: #e0a24d;
+    --new-chip-text: #1a1305;
+    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 12px 32px -14px rgba(0,0,0,0.55);
+  }
+  :root[data-theme="light"] {
+    --bg: #f5f2ea;
+    --bg-grid: rgba(32, 29, 24, 0.05);
+    --surface: #ffffff;
+    --surface-2: #efe9db;
+    --border: rgba(28, 24, 18, 0.14);
+    --border-strong: rgba(28, 24, 18, 0.28);
+    --text: #201c15;
+    --text-muted: #6b6558;
+    --text-faint: #948d7d;
+    --accent: #a8671c;
+    --accent-strong: #7d4c12;
+    --accent-soft: rgba(168, 103, 28, 0.14);
+    --accent-2: #2f7a72;
+    --accent-2-soft: rgba(47, 122, 114, 0.14);
+    --new-chip-bg: #a8671c;
+    --new-chip-text: #fff8ec;
+    --shadow: 0 1px 2px rgba(28,24,18,0.04), 0 8px 24px -12px rgba(28,24,18,0.18);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    background-image:
+      linear-gradient(var(--bg-grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--bg-grid) 1px, transparent 1px);
+    background-size: 28px 28px;
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    display: flex;
+    justify-content: center;
+    padding: 56px 24px;
+  }
+
+  .sheet {
+    width: 100%;
+    max-width: 1360px;
+  }
+
+  .masthead {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 24px;
+    padding-bottom: 22px;
+    margin-bottom: 34px;
+    border-bottom: 1px solid var(--border-strong);
+  }
+
+  .masthead-left { min-width: 0; }
+
+  .eyebrow {
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, monospace;
+    font-size: 12.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 600;
+    margin: 0 0 10px 0;
+  }
+
+  h1 {
+    font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
+    font-weight: 600;
+    font-size: clamp(28px, 3.4vw, 40px);
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+    margin: 0;
+    text-wrap: balance;
+    color: var(--text);
+  }
+
+  .masthead-right {
+    text-align: right;
+    flex-shrink: 0;
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+  .masthead-right .v {
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+  .masthead-right .repo {
+    font-size: 12px;
+    color: var(--text-faint);
+    margin-top: 4px;
+  }
+
+  .subtitle {
+    font-size: 15.5px;
+    color: var(--text-muted);
+    max-width: 62ch;
+    line-height: 1.55;
+    margin: 14px 0 0 0;
+  }
+
+  /* ---- pipeline frame ---- */
+
+  .frame-wrap {
+    position: relative;
+    margin-top: 56px;
+    padding: 34px 30px 30px;
+    border: 1.5px dashed var(--border-strong);
+    border-radius: 20px;
+    background: linear-gradient(180deg, var(--accent-soft), transparent 40%);
+  }
+
+  .frame-tag {
+    position: absolute;
+    top: -15px;
+    left: 26px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--bg);
+    padding: 4px 12px;
+    border: 1.5px dashed var(--border-strong);
+    border-radius: 999px;
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, monospace;
+    font-size: 12px;
+    color: var(--accent-strong);
+    font-weight: 600;
+  }
+
+  .frame-note {
+    position: absolute;
+    top: -15px;
+    right: 26px;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    background: var(--bg);
+    padding: 4px 12px;
+    border: 1.5px dashed var(--border-strong);
+    border-radius: 999px;
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, monospace;
+    font-size: 12px;
+    color: var(--text-muted);
+    font-weight: 500;
+  }
+  .frame-note svg { flex-shrink: 0; }
+
+  .trigger-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 6px 0 26px 2px;
+  }
+  .trigger-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 14px 7px 10px;
+    border-radius: 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow);
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, monospace;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .trigger-pill svg { color: var(--accent); flex-shrink: 0; }
+  .trigger-arrow { color: var(--text-faint); }
+
+  .lane {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    overflow-x: auto;
+    padding-bottom: 6px;
+  }
+
+  .stage-card {
+    position: relative;
+    flex: 1 1 0;
+    min-width: 168px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: var(--shadow);
+    padding: 16px 15px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .stage-card.is-new {
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  }
+
+  .step-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .step-num {
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, monospace;
+    font-size: 12px;
+    color: var(--text-faint);
+    font-weight: 600;
+  }
+
+  .new-chip {
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, monospace;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    font-weight: 700;
+    background: var(--new-chip-bg);
+    color: var(--new-chip-text);
+    padding: 2px 7px;
+    border-radius: 999px;
+  }
+
+  .step-icon {
+    width: 34px;
+    height: 34px;
+    border-radius: 9px;
+    background: var(--accent-soft);
+    color: var(--accent-strong);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .stage-card.is-new .step-icon {
+    background: var(--accent-2-soft);
+    color: var(--accent-2);
+  }
+
+  .step-title {
+    font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    font-weight: 600;
+    font-size: 17px;
+    color: var(--text);
+    margin: 0;
+  }
+
+  .step-tool {
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, monospace;
+    font-size: 11.5px;
+    color: var(--text-muted);
+  }
+
+  .step-desc {
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--text-muted);
+    margin: 0;
+  }
+
+  .connector {
+    flex: 0 0 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-faint);
+    align-self: center;
+  }
+
+  .outputs-row {
+    display: flex;
+    margin-top: 18px;
+  }
+
+  .output-slot {
+    flex: 1 1 0;
+    min-width: 168px;
+    display: flex;
+    justify-content: center;
+  }
+  .output-slot + .output-slot { margin-left: 0; }
+  .lane + .outputs-row .output-slot { position: relative; }
+
+  .output-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 14px;
+    padding: 5px 11px;
+    border-radius: 999px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, monospace;
+    font-size: 11px;
+    color: var(--text-muted);
+    font-weight: 600;
+  }
+  .output-tag svg { color: var(--accent-2); flex-shrink: 0; }
+
+  .output-stem {
+    position: absolute;
+    top: -14px;
+    left: 50%;
+    width: 1px;
+    height: 14px;
+    background: var(--border-strong);
+  }
+
+  /* legend / footer */
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 22px;
+    margin-top: 40px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 12.5px;
+    color: var(--text-muted);
+  }
+  .legend-swatch {
+    width: 11px; height: 11px; border-radius: 3px; flex-shrink: 0;
+  }
+
+  @media (max-width: 900px) {
+    .lane { flex-direction: column; }
+    .connector { transform: rotate(90deg); align-self: center; flex-basis: 20px; }
+    .outputs-row { flex-direction: column; gap: 4px; }
+    .output-slot { justify-content: flex-start; padding-left: 4px; }
+    .output-stem { display: none; }
+    .masthead { flex-direction: column; align-items: flex-start; }
+    .masthead-right { text-align: left; }
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .stage-card { transition: transform 160ms ease, box-shadow 160ms ease; }
+  }
+</style>
+<style>
+  /* ---- shared: request-flow / comparison-flow diagrams ---- */
+  .flow {
+    display: flex; align-items: stretch; gap: 0;
+    overflow-x: auto; padding-bottom: 6px; margin-top: 14px;
+  }
+  .node {
+    position: relative; flex: 1 1 0; min-width: 150px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 13px; box-shadow: var(--shadow);
+    padding: 15px 14px 16px;
+    display: flex; flex-direction: column; gap: 7px;
+  }
+  .node.ok   { border-color: color-mix(in srgb, var(--accent-2) 50%, var(--border)); }
+  .node.dead { border-color: color-mix(in srgb, #c0392b 45%, var(--border)); }
+  .node-step {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 11px; color: var(--text-faint); font-weight: 600;
+  }
+  .node-icon {
+    width: 30px; height: 30px; border-radius: 8px;
+    background: var(--accent-soft); color: var(--accent-strong);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .node.ok   .node-icon { background: var(--accent-2-soft); color: var(--accent-2); }
+  .node.dead .node-icon { background: rgba(192,57,43,.14); color: #c0392b; }
+  .node-title {
+    font-family: "Iowan Old Style", Palatino, Georgia, serif;
+    font-weight: 600; font-size: 15.5px; margin: 0; color: var(--text);
+  }
+  .node-code {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 10.5px; color: var(--text-muted); word-break: break-all; margin: 0;
+  }
+  .node-desc { font-size: 12px; line-height: 1.45; color: var(--text-muted); margin: 0; }
+  .node-flag {
+    display: inline-flex; align-items: center; gap: 5px; margin-top: 2px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 10.5px; font-weight: 700; letter-spacing: .04em;
+    padding: 3px 8px; border-radius: 999px;
+    background: rgba(192,57,43,.14); color: #c0392b; align-self: flex-start;
+  }
+  .node-flag.good { background: var(--accent-2-soft); color: var(--accent-2); }
+  .arrow {
+    flex: 0 0 26px; display: flex; align-items: center; justify-content: center;
+    color: var(--text-faint); align-self: center;
+  }
+  .arrow.broken { color: #c0392b; }
+
+  .band {
+    margin-top: 46px; padding: 30px 26px 26px;
+    border: 1.5px dashed var(--border-strong); border-radius: 18px;
+    position: relative;
+  }
+  .band.bad  { background: linear-gradient(180deg, rgba(192,57,43,.10), transparent 45%); }
+  .band.good { background: linear-gradient(180deg, var(--accent-2-soft), transparent 45%); }
+  .band-tag {
+    position: absolute; top: -14px; left: 24px;
+    background: var(--bg); padding: 3px 13px;
+    border: 1.5px dashed var(--border-strong); border-radius: 999px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 11.5px; font-weight: 600;
+  }
+  .band.bad  .band-tag { color: #c0392b; }
+  .band.good .band-tag { color: var(--accent-2); }
+  .band-sub {
+    font-size: 13px; color: var(--text-muted); margin: 0 0 4px 0; line-height: 1.5;
+  }
+
+  .callout {
+    margin-top: 32px; border: 1.5px dashed var(--border-strong);
+    border-radius: 16px; padding: 22px 26px; position: relative;
+    background: linear-gradient(180deg, var(--accent-soft), transparent 60%);
+  }
+  .callout-tag {
+    position: absolute; top: -14px; left: 24px;
+    background: var(--bg); padding: 3px 12px;
+    border: 1.5px dashed var(--border-strong); border-radius: 999px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 11.5px; font-weight: 600; color: var(--accent-strong);
+  }
+  .callout p { margin: 0; font-size: 15.5px; line-height: 1.6; color: var(--text); max-width: 90ch; }
+  .callout code {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 13.5px; background: var(--surface-2);
+    padding: 1px 6px; border-radius: 5px;
+  }
+  .stat-row { display: flex; gap: 16px; margin-top: 26px; flex-wrap: wrap; }
+  .stat {
+    flex: 1 1 0; min-width: 150px; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 13px;
+    box-shadow: var(--shadow); padding: 16px 16px 15px;
+  }
+  .stat-label {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 10.5px; letter-spacing: .07em; text-transform: uppercase;
+    color: var(--text-faint); margin: 0 0 6px 0;
+  }
+  .stat-value {
+    font-family: "Iowan Old Style", Palatino, Georgia, serif;
+    font-size: 25px; font-weight: 600; margin: 0; color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+  .stat-value .was { color: var(--text-faint); font-size: 19px; }
+  .stat-value .now { color: var(--accent-2); }
+  .stat-note { font-size: 11.5px; color: var(--text-muted); margin: 5px 0 0 0; line-height: 1.4; }
+  @media (max-width: 900px) { .flow { flex-direction: column; } .arrow { transform: rotate(90deg); padding: 6px 0; } }
+</style>
+
+<div class="sheet">
+
+  <div class="masthead">
+    <div class="masthead-left">
+      <p class="eyebrow">X Spaces Transcriber — build log</p>
+      <h1>The summary stopped being the source of truth.</h1>
+      <p class="subtitle">Ticker alerts used to be built by running a regular expression over prose Claude had written. That works until Claude formats one bullet differently — and then a ticker disappears from an alerting system without a sound.</p>
+    </div>
+    <div class="masthead-right">
+      <div class="v">v2.1</div>
+      <div class="repo">github.com/everydaywithaiteam/x_spaces_transcriber</div>
+    </div>
+  </div>
+
+  <div class="band bad">
+    <span class="band-tag">before — markdown is the source of truth</span>
+    <p class="band-sub">Claude writes prose. The pipeline reads that prose back and hopes the shape held.</p>
+    <div class="flow">
+      <div class="node">
+        <span class="node-step">01</span>
+        <div class="node-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a5 5 0 0 1 5 5v3a5 5 0 0 1-10 0V7a5 5 0 0 1 5-5z"/><path d="M5 11a7 7 0 0 0 14 0"/></svg></div>
+        <p class="node-title">Claude writes markdown</p>
+        <p class="node-desc">One long document — headings, prose, bullet lists.</p>
+      </div>
+      <div class="arrow"><svg width="20" height="12" viewBox="0 0 20 12" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 6h16M13 1l5 5-5 5"/></svg></div>
+      <div class="node dead">
+        <span class="node-step">02</span>
+        <div class="node-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M4 12h10M4 17h13"/></svg></div>
+        <p class="node-title">Regex the bullets</p>
+        <p class="node-code">^- \*\*\$([A-Z]{1,6})\*\*</p>
+        <p class="node-desc">Finds the tickers section, then matches each bullet's exact punctuation.</p>
+        <span class="node-flag">brittle</span>
+      </div>
+      <div class="arrow broken"><svg width="20" height="12" viewBox="0 0 20 12" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="3 3"><path d="M1 6h16M13 1l5 5-5 5"/></svg></div>
+      <div class="node dead">
+        <span class="node-step">03</span>
+        <div class="node-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg></div>
+        <p class="node-title">A bullet renders differently</p>
+        <p class="node-desc">An en dash instead of an em dash, two tickers on one line, a missing bold marker.</p>
+        <span class="node-flag">ticker dropped, silently</span>
+      </div>
+      <div class="arrow broken"><svg width="20" height="12" viewBox="0 0 20 12" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="3 3"><path d="M1 6h16M13 1l5 5-5 5"/></svg></div>
+      <div class="node dead">
+        <span class="node-step">04</span>
+        <div class="node-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M10 21h4"/></svg></div>
+        <p class="node-title">No alert is sent</p>
+        <p class="node-desc">Nothing errors. Nothing logs. The stock you track was discussed and you never hear about it.</p>
+        <span class="node-flag">worst failure mode</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="band good" style="margin-top:34px">
+    <span class="band-tag">after — the schema is the source of truth</span>
+    <p class="band-sub">Claude fills in fields. The markdown you read is rendered <em>from</em> those fields, not parsed back out of them.</p>
+    <div class="flow">
+      <div class="node ok">
+        <span class="node-step">01</span>
+        <div class="node-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H7a2 2 0 0 0-2 2v4a2 2 0 0 1-2 2 2 2 0 0 1 2 2v4a2 2 0 0 0 2 2h1"/><path d="M16 3h1a2 2 0 0 1 2 2v4a2 2 0 0 0 2 2 2 2 0 0 0-2 2v4a2 2 0 0 1-2 2h-1"/></svg></div>
+        <p class="node-title">Claude fills a schema</p>
+        <p class="node-code">output_config.format</p>
+        <p class="node-desc">Typed fields: symbol, stance, context — validated on the way out.</p>
+        <span class="node-flag good">shape guaranteed</span>
+      </div>
+      <div class="arrow"><svg width="20" height="12" viewBox="0 0 20 12" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 6h16M13 1l5 5-5 5"/></svg></div>
+      <div class="node ok">
+        <span class="node-step">02</span>
+        <div class="node-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="M4 10h16M10 10v10"/></svg></div>
+        <p class="node-title">Read the field</p>
+        <p class="node-code">data["tickers"] → symbol</p>
+        <p class="node-desc">No parsing. The alert reads a list that was never prose to begin with.</p>
+      </div>
+      <div class="arrow"><svg width="20" height="12" viewBox="0 0 20 12" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 6h16M13 1l5 5-5 5"/></svg></div>
+      <div class="node ok">
+        <span class="node-step">03</span>
+        <div class="node-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg></div>
+        <p class="node-title">Render the markdown</p>
+        <p class="node-desc">Same headings as before, so the email and Notion sync never noticed the change.</p>
+        <span class="node-flag good">a view, not the truth</span>
+      </div>
+      <div class="arrow"><svg width="20" height="12" viewBox="0 0 20 12" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 6h16M13 1l5 5-5 5"/></svg></div>
+      <div class="node ok">
+        <span class="node-step">04</span>
+        <div class="node-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 7-7"/><path d="M14 8h6v6"/></svg></div>
+        <p class="node-title">One field = one section</p>
+        <p class="node-code">position_intent</p>
+        <p class="node-desc">Adding “what he's about to buy” was a schema field and a renderer block. No new parsing.</p>
+        <span class="node-flag good">cheap to extend</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="stat-row">
+    <div class="stat">
+      <p class="stat-label">Tickers found</p>
+      <p class="stat-value"><span class="was">32</span> → <span class="now">47</span></p>
+      <p class="stat-note">Same 67-minute episode. The schema made it more thorough, not only more reliable.</p>
+    </div>
+    <div class="stat">
+      <p class="stat-label">Watchlist matches</p>
+      <p class="stat-value"><span class="was">15</span> → <span class="now">18</span></p>
+      <p class="stat-note">Three alerts that would never have fired.</p>
+    </div>
+    <div class="stat">
+      <p class="stat-label">Malformed symbols</p>
+      <p class="stat-value"><span class="was">$AMCOR</span> → <span class="now">$AMCR</span></p>
+      <p class="stat-note">Amcor's real ticker. Corrected without being asked.</p>
+    </div>
+  </div>
+
+  <div class="callout">
+    <span class="callout-tag">the caveat</span>
+    <p>A schema guarantees the <strong>shape</strong> of what comes back. It doesn't guarantee the model won't put strange text <em>inside</em> a field — which is exactly the bug that shipped anyway. Those are different problems.</p>
+  </div>
+
+</div>
