@@ -63,11 +63,26 @@ def send_email(subject: str, plain_text: str, html: str, to_list: list = None) -
         return False
 
 
+# Per-source labelling, so a glance at the inbox says which show an email is
+# from. Entries created before Zoom ingest existed carry no "source" and are
+# X Spaces, which keeps old subject lines unchanged.
+_SOURCES = {
+    "zoom-vtt": ("Zoom Summary", "#2d8cff"),   # Zoom blue
+}
+_DEFAULT_SOURCE = ("X Space Summary", "#1da1f2")  # Twitter blue
+
+
+def source_label(space_meta: dict) -> tuple:
+    """(subject prefix, accent colour) for the episode's source."""
+    return _SOURCES.get(space_meta.get("source"), _DEFAULT_SOURCE)
+
+
 def send_summary_email(summary_path: Path, space_meta: dict) -> bool:
     """Email the contents of a summary .md file.
 
-    space_meta: {"account", "speaker", "url", "space_id", "date"}
-    "date" is the date the Space was recorded (not when it was processed).
+    space_meta: {"account", "speaker", "url", "space_id", "date", "source"}
+    "date" is the date the episode was recorded (not when it was processed).
+    "source" selects the subject prefix — "zoom-vtt" or absent (X Space).
     Never raises — returns True on success, False on any failure (logged).
     """
     try:
@@ -79,22 +94,23 @@ def send_summary_email(summary_path: Path, space_meta: dict) -> bool:
         account = space_meta.get("account", "")
         date = space_meta.get("date", "")
         url = space_meta.get("url", "")
+        label, accent = source_label(space_meta)
 
         html = f"""\
 <html>
 <body style="font-family:-apple-system,Helvetica,Arial,sans-serif;max-width:700px;
              margin:0 auto;padding:20px;color:#1a1a1a;line-height:1.55;">
-  <div style="border-bottom:2px solid #1da1f2;padding-bottom:12px;margin-bottom:20px;">
-    <h1 style="font-size:18px;margin:0 0 4px 0;">X Space Summary — {account}</h1>
+  <div style="border-bottom:2px solid {accent};padding-bottom:12px;margin-bottom:20px;">
+    <h1 style="font-size:18px;margin:0 0 4px 0;">{label} — {account}</h1>
     <div style="font-size:13px;color:#666;">
-      {f"Recorded {date}" if date else ""}{" &middot; " if date and url else ""}{f'<a href="{url}" style="color:#1da1f2;">{url}</a>' if url else ""}
+      {f"Recorded {date}" if date else ""}{" &middot; " if date and url else ""}{f'<a href="{url}" style="color:{accent};">{url}</a>' if url else ""}
     </div>
   </div>
   {html_body}
 </body>
 </html>"""
 
-        subject = f"X Space Summary — {account} — {date}".strip(" —")
+        subject = f"{label} — {account} — {date}".strip(" —")
         return send_email(subject, md_text, html)
 
     except Exception as e:
