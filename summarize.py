@@ -51,6 +51,17 @@ Brief explanation of how you identified @{speaker} in the transcript.
 ## Overview
 4-6 sentence summary covering the main themes, market context, and tone of the episode.
 
+## Looking to Buy, Add, or Exit
+Stocks @{speaker} said they are THINKING ABOUT acting on but have NOT yet acted on — considering \
+opening a position, planning to add to or upsize one, or considering trimming or exiting one. \
+Forward-looking only: a trade already executed belongs in Trades & Portfolio Moves, not here. \
+One per line, in exactly this format:
+- **$TICKER** — considering buying/upsizing/trimming/exiting — what they said, plus any price \
+level, catalyst, or condition that would trigger the move
+Only include a name if they expressed genuine intent or openness to act — exclude anything \
+they raised and then ruled out or said they are not interested in. Omit this section \
+entirely if none were mentioned.
+
 ## Market Takes & Insights
 Detailed bullet points of @{speaker}'s key views, predictions, and analysis. For each point include \
 their reasoning and any supporting data or context they gave, not just the conclusion.
@@ -95,6 +106,17 @@ Bullet points of the main topics covered.
 ## Key Points & Takeaways
 The most important insights and conclusions.
 
+## Looking to Buy, Add, or Exit
+Stocks any speaker said they are THINKING ABOUT acting on but have NOT yet acted on — considering \
+opening a position, planning to add to or upsize one, or considering trimming or exiting one. \
+Forward-looking only: a trade already executed belongs in Trades & Portfolio Moves, not here. \
+One per line, in exactly this format:
+- **$TICKER** — considering buying/upsizing/trimming/exiting — what they said, plus any price \
+level, catalyst, or condition that would trigger the move
+Only include a name if they expressed genuine intent or openness to act — exclude anything \
+they raised and then ruled out or said they are not interested in. Omit this section \
+entirely if none were mentioned.
+
 ## Stocks & Tickers Mentioned
 List every publicly-traded ticker discussed, one per bullet line, in exactly this format:
 - **$TICKER** — stance (bullish/bearish/neutral/unclear) — brief context
@@ -132,6 +154,17 @@ Format your response as:
 
 ## Overview
 4-6 sentence summary covering the main themes, market context, and tone of the episode.
+
+## Looking to Buy, Add, or Exit
+Stocks {speaker} said they are THINKING ABOUT acting on but have NOT yet acted on — considering \
+opening a position, planning to add to or upsize one, or considering trimming or exiting one. \
+Forward-looking only: a trade already executed belongs in Trades & Portfolio Moves, not here. \
+One per line, in exactly this format:
+- **$TICKER** — considering buying/upsizing/trimming/exiting — what they said, plus any price \
+level, catalyst, or condition that would trigger the move
+Only include a name if they expressed genuine intent or openness to act — exclude anything \
+they raised and then ruled out or said they are not interested in. Omit this section \
+entirely if none were mentioned.
 
 ## Market Takes & Insights
 Detailed bullet points of {speaker}'s key views, predictions, and analysis. For each point \
@@ -209,6 +242,36 @@ SUMMARY_SCHEMA = {
                            "transcript already carries speaker labels.",
         },
         "overview": {"type": "string", "description": "4-6 sentences on themes, market context, tone."},
+        "position_intent": {
+            "type": "array",
+            "description": (
+                "Stocks the speaker signalled they are THINKING ABOUT acting on but has "
+                "NOT yet acted on: considering opening a position, planning to add to or "
+                "upsize one, or considering trimming or exiting one. Forward-looking only "
+                "— a trade already executed belongs in `trades`, not here. Include the "
+                "trigger or condition when one was given (a price level, a catalyst, an "
+                "earnings date). Only include a name if they expressed genuine intent or "
+                "openness to act: exclude anything they raised and then ruled out, said "
+                "they are not interested in, or are not watching. Empty array if none."
+            ),
+            "items": {
+                "type": "object",
+                "properties": {
+                    "symbol": {"type": "string", "description": "Uppercase market ticker, no $ prefix."},
+                    "action": {
+                        "type": "string",
+                        "enum": ["considering buying", "upsizing", "trimming", "exiting"],
+                    },
+                    "context": {
+                        "type": "string",
+                        "description": "One sentence: what they said, plus any price level, "
+                                       "catalyst, or condition that would trigger the move.",
+                    },
+                },
+                "required": ["symbol", "action", "context"],
+                "additionalProperties": False,
+            },
+        },
         "market_takes": dict(_STR_ARRAY, description="Key views and analysis, each with the reasoning given."),
         "trades": dict(_STR_ARRAY, description="Specific trades, entries, exits, position changes with rationale."),
         "tickers": {
@@ -251,8 +314,8 @@ SUMMARY_SCHEMA = {
             },
         },
     },
-    "required": ["host_identification", "overview", "market_takes", "trades",
-                 "tickers", "themes", "guest_highlights", "quotes"],
+    "required": ["host_identification", "overview", "position_intent", "market_takes",
+                 "trades", "tickers", "themes", "guest_highlights", "quotes"],
     "additionalProperties": False,
 }
 
@@ -301,6 +364,16 @@ def render_summary_markdown(data: dict) -> str:
         out += ["## Host Identification", "", data["host_identification"], ""]
     if data.get("overview"):
         out += ["## Overview", "", data["overview"], ""]
+
+    # Placed directly after the overview: this is the most actionable part of the
+    # summary — what the speaker is about to do, as opposed to what they already
+    # did (which is Trades & Portfolio Moves further down).
+    if data.get("position_intent"):
+        out += ["## Looking to Buy, Add, or Exit", ""]
+        for item in data["position_intent"]:
+            symbol = str(item.get("symbol", "")).lstrip("$").upper()
+            out.append(f"- **${symbol}** — {item.get('action', '')} — {item.get('context', '')}".rstrip(" —"))
+        out.append("")
 
     def bullets(heading, items):
         if items:
