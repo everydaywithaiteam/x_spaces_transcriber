@@ -55,6 +55,9 @@ def _meta(entry_id: str, entry: dict) -> dict:
         "url": entry.get("url"),
         "space_id": entry_id,
         "date": display_date(entry),
+        # Lets the senders label which show an email came from. Entries created
+        # before Zoom ingest existed have no `source` and are X Spaces.
+        "source": entry.get("source"),
     }
 
 

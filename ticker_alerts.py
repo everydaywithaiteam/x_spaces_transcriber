@@ -149,22 +149,24 @@ def send_watchlist_alert(summary_path: Path, space_meta: dict, matched_tickers: 
         date = space_meta.get("date", "")
         url = space_meta.get("url", "")
         summary_link = space_meta.get("summary_path", str(summary_path))
+        # "Space" is wrong for a Zoom episode; label the source it came from.
+        kind = "Zoom episode" if space_meta.get("source") == "zoom-vtt" else "Space"
 
         tickers_str = ", ".join(f"${t}" for t in matched_tickers)
         subject = f"\U0001F514 {_subject_tickers(matched_tickers)} mentioned — {account} {date}".strip()
 
         plain_text = (
-            f"{tickers_str} came up in today's Space from {account}.\n\n"
-            f"Space: {url}\n"
-            f"Full summary: {summary_link}\n"
+            f"{tickers_str} came up in today's {kind} from {account}.\n\n"
+            + (f"Link: {url}\n" if url else "")
+            + f"Full summary: {summary_link}\n"
         )
         html = f"""\
 <html>
 <body style="font-family:-apple-system,Helvetica,Arial,sans-serif;max-width:700px;
              margin:0 auto;padding:20px;color:#1a1a1a;line-height:1.55;">
   <h1 style="font-size:18px;">\U0001F514 {tickers_str} mentioned — {account} {date}</h1>
-  <p>{tickers_str} came up in today's Space from {account}.</p>
-  <p><a href="{url}">Space link</a></p>
+  <p>{tickers_str} came up in today's {kind} from {account}.</p>
+  {f'<p><a href="{url}">{kind} link</a></p>' if url else ""}
   <p>Full summary: {summary_link}</p>
 </body>
 </html>"""

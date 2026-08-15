@@ -51,6 +51,17 @@ Brief explanation of how you identified @{speaker} in the transcript.
 ## Overview
 4-6 sentence summary covering the main themes, market context, and tone of the episode.
 
+## Looking to Buy, Add, or Exit
+Stocks @{speaker} said they are THINKING ABOUT acting on but have NOT yet acted on — considering \
+opening a position, planning to add to or upsize one, or considering trimming or exiting one. \
+Forward-looking only: a trade already executed belongs in Trades & Portfolio Moves, not here. \
+One per line, in exactly this format:
+- **$TICKER** — considering buying/upsizing/trimming/exiting — what they said, plus any price \
+level, catalyst, or condition that would trigger the move
+Only include a name if they expressed genuine intent or openness to act — exclude anything \
+they raised and then ruled out or said they are not interested in. Omit this section \
+entirely if none were mentioned.
+
 ## Market Takes & Insights
 Detailed bullet points of @{speaker}'s key views, predictions, and analysis. For each point include \
 their reasoning and any supporting data or context they gave, not just the conclusion.
@@ -95,6 +106,17 @@ Bullet points of the main topics covered.
 ## Key Points & Takeaways
 The most important insights and conclusions.
 
+## Looking to Buy, Add, or Exit
+Stocks any speaker said they are THINKING ABOUT acting on but have NOT yet acted on — considering \
+opening a position, planning to add to or upsize one, or considering trimming or exiting one. \
+Forward-looking only: a trade already executed belongs in Trades & Portfolio Moves, not here. \
+One per line, in exactly this format:
+- **$TICKER** — considering buying/upsizing/trimming/exiting — what they said, plus any price \
+level, catalyst, or condition that would trigger the move
+Only include a name if they expressed genuine intent or openness to act — exclude anything \
+they raised and then ruled out or said they are not interested in. Omit this section \
+entirely if none were mentioned.
+
 ## Stocks & Tickers Mentioned
 List every publicly-traded ticker discussed, one per bullet line, in exactly this format:
 - **$TICKER** — stance (bullish/bearish/neutral/unclear) — brief context
@@ -132,6 +154,17 @@ Format your response as:
 
 ## Overview
 4-6 sentence summary covering the main themes, market context, and tone of the episode.
+
+## Looking to Buy, Add, or Exit
+Stocks {speaker} said they are THINKING ABOUT acting on but have NOT yet acted on — considering \
+opening a position, planning to add to or upsize one, or considering trimming or exiting one. \
+Forward-looking only: a trade already executed belongs in Trades & Portfolio Moves, not here. \
+One per line, in exactly this format:
+- **$TICKER** — considering buying/upsizing/trimming/exiting — what they said, plus any price \
+level, catalyst, or condition that would trigger the move
+Only include a name if they expressed genuine intent or openness to act — exclude anything \
+they raised and then ruled out or said they are not interested in. Omit this section \
+entirely if none were mentioned.
 
 ## Market Takes & Insights
 Detailed bullet points of {speaker}'s key views, predictions, and analysis. For each point \
@@ -209,6 +242,36 @@ SUMMARY_SCHEMA = {
                            "transcript already carries speaker labels.",
         },
         "overview": {"type": "string", "description": "4-6 sentences on themes, market context, tone."},
+        "position_intent": {
+            "type": "array",
+            "description": (
+                "Stocks the speaker signalled they are THINKING ABOUT acting on but has "
+                "NOT yet acted on: considering opening a position, planning to add to or "
+                "upsize one, or considering trimming or exiting one. Forward-looking only "
+                "— a trade already executed belongs in `trades`, not here. Include the "
+                "trigger or condition when one was given (a price level, a catalyst, an "
+                "earnings date). Only include a name if they expressed genuine intent or "
+                "openness to act: exclude anything they raised and then ruled out, said "
+                "they are not interested in, or are not watching. Empty array if none."
+            ),
+            "items": {
+                "type": "object",
+                "properties": {
+                    "symbol": {"type": "string", "description": "Uppercase market ticker, no $ prefix."},
+                    "action": {
+                        "type": "string",
+                        "enum": ["considering buying", "upsizing", "trimming", "exiting"],
+                    },
+                    "context": {
+                        "type": "string",
+                        "description": "One sentence: what they said, plus any price level, "
+                                       "catalyst, or condition that would trigger the move.",
+                    },
+                },
+                "required": ["symbol", "action", "context"],
+                "additionalProperties": False,
+            },
+        },
         "market_takes": dict(_STR_ARRAY, description="Key views and analysis, each with the reasoning given."),
         "trades": dict(_STR_ARRAY, description="Specific trades, entries, exits, position changes with rationale."),
         "tickers": {
@@ -251,8 +314,8 @@ SUMMARY_SCHEMA = {
             },
         },
     },
-    "required": ["host_identification", "overview", "market_takes", "trades",
-                 "tickers", "themes", "guest_highlights", "quotes"],
+    "required": ["host_identification", "overview", "position_intent", "market_takes",
+                 "trades", "tickers", "themes", "guest_highlights", "quotes"],
     "additionalProperties": False,
 }
 
@@ -290,6 +353,29 @@ def _strip_markdown_format_block(prompt: str) -> str:
     return stripped
 
 
+# Claude occasionally writes a Unicode escape as *literal text* inside a JSON
+# string value — six characters, backslash-u-2-0-1-4 — instead of the character
+# itself or a real JSON escape. json.loads has nothing to decode in that case, so
+# the sequence survives into the markdown and readers see "—" in their email
+# where an em dash belongs. Seen 28 times in a single summary, so it needs
+# handling rather than hoping.
+#
+# Only \uXXXX is rewritten: it is unambiguous, and leaving other backslash
+# sequences alone avoids mangling any legitimate backslash in quoted text.
+_STRAY_UNICODE_ESCAPE = re.compile(r"\\u([0-9a-fA-F]{4})")
+
+
+def decode_stray_escapes(value):
+    """Recursively turn literal \\uXXXX text back into the character it names."""
+    if isinstance(value, str):
+        return _STRAY_UNICODE_ESCAPE.sub(lambda m: chr(int(m.group(1), 16)), value)
+    if isinstance(value, list):
+        return [decode_stray_escapes(v) for v in value]
+    if isinstance(value, dict):
+        return {k: decode_stray_escapes(v) for k, v in value.items()}
+    return value
+
+
 def render_summary_markdown(data: dict) -> str:
     """Render the structured summary as the same markdown shape as before.
 
@@ -301,6 +387,16 @@ def render_summary_markdown(data: dict) -> str:
         out += ["## Host Identification", "", data["host_identification"], ""]
     if data.get("overview"):
         out += ["## Overview", "", data["overview"], ""]
+
+    # Placed directly after the overview: this is the most actionable part of the
+    # summary — what the speaker is about to do, as opposed to what they already
+    # did (which is Trades & Portfolio Moves further down).
+    if data.get("position_intent"):
+        out += ["## Looking to Buy, Add, or Exit", ""]
+        for item in data["position_intent"]:
+            symbol = str(item.get("symbol", "")).lstrip("$").upper()
+            out.append(f"- **${symbol}** — {item.get('action', '')} — {item.get('context', '')}".rstrip(" —"))
+        out.append("")
 
     def bullets(heading, items):
         if items:
@@ -405,12 +501,16 @@ def summarize(transcript_path: Path, speaker: str = None, space_url: str = None,
     raw = next((b.text for b in message.content if b.type == "text"), "")
 
     if structured:
-        data = json.loads(raw)
+        # Cleaned before both writes, so the sidecar and the markdown agree.
+        data = decode_stray_escapes(json.loads(raw))
         summary_text = render_summary_markdown(data)
         # Sidecar JSON: the source of truth for tickers, so downstream never has
         # to parse markdown back out again.
         json_path = output_path.with_suffix(".json")
-        json_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        # ensure_ascii=False keeps em dashes and quotes as themselves, so the
+        # sidecar is readable and a stray literal escape stands out instead of
+        # hiding among legitimate \uXXXX that json.dumps would otherwise emit.
+        json_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
         print(f"Structured summary saved to: {json_path} "
               f"({len(data.get('tickers', []))} tickers)")
     else:
