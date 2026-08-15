@@ -353,6 +353,29 @@ def _strip_markdown_format_block(prompt: str) -> str:
     return stripped
 
 
+# Claude occasionally writes a Unicode escape as *literal text* inside a JSON
+# string value — six characters, backslash-u-2-0-1-4 — instead of the character
+# itself or a real JSON escape. json.loads has nothing to decode in that case, so
+# the sequence survives into the markdown and readers see "—" in their email
+# where an em dash belongs. Seen 28 times in a single summary, so it needs
+# handling rather than hoping.
+#
+# Only \uXXXX is rewritten: it is unambiguous, and leaving other backslash
+# sequences alone avoids mangling any legitimate backslash in quoted text.
+_STRAY_UNICODE_ESCAPE = re.compile(r"\\u([0-9a-fA-F]{4})")
+
+
+def decode_stray_escapes(value):
+    """Recursively turn literal \\uXXXX text back into the character it names."""
+    if isinstance(value, str):
+        return _STRAY_UNICODE_ESCAPE.sub(lambda m: chr(int(m.group(1), 16)), value)
+    if isinstance(value, list):
+        return [decode_stray_escapes(v) for v in value]
+    if isinstance(value, dict):
+        return {k: decode_stray_escapes(v) for k, v in value.items()}
+    return value
+
+
 def render_summary_markdown(data: dict) -> str:
     """Render the structured summary as the same markdown shape as before.
 
@@ -478,12 +501,16 @@ def summarize(transcript_path: Path, speaker: str = None, space_url: str = None,
     raw = next((b.text for b in message.content if b.type == "text"), "")
 
     if structured:
-        data = json.loads(raw)
+        # Cleaned before both writes, so the sidecar and the markdown agree.
+        data = decode_stray_escapes(json.loads(raw))
         summary_text = render_summary_markdown(data)
         # Sidecar JSON: the source of truth for tickers, so downstream never has
         # to parse markdown back out again.
         json_path = output_path.with_suffix(".json")
-        json_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        # ensure_ascii=False keeps em dashes and quotes as themselves, so the
+        # sidecar is readable and a stray literal escape stands out instead of
+        # hiding among legitimate \uXXXX that json.dumps would otherwise emit.
+        json_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
         print(f"Structured summary saved to: {json_path} "
               f"({len(data.get('tickers', []))} tickers)")
     else:
