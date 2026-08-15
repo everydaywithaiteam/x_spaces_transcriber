@@ -215,23 +215,19 @@ _MLX_MODELS = {
 }
 
 
-def _ticker_hint_prompt(limit: int = 40) -> Optional[str]:
-    """Bias Whisper's decoder toward the tickers you actually care about.
-
-    Whisper accepts an `initial_prompt` as vocabulary context. Seeding it with
-    the watchlist makes correct ticker spellings materially more likely. The
-    prompt window is small (~224 tokens), so this is capped and degrades to
-    None when there's no watchlist.
-    """
-    try:
-        from ticker_alerts import load_watchlist
-        tickers = load_watchlist()
-    except Exception:
-        return None
-    if not tickers:
-        return None
-    return ("This is a stock market discussion. Tickers mentioned may include: "
-            + ", ".join(tickers[:limit]) + ".")
+# Deliberately NOT seeding Whisper's `initial_prompt` with the watchlist.
+#
+# It looks like an obvious win — tell the decoder which ticker symbols to expect
+# — and it was in this pipeline briefly. Measured on real audio, it made things
+# worse: Whisper treats initial_prompt as text that *preceded* the audio, and
+# large-v3 responded by skipping ahead. On a 90-second clip it dropped a third of
+# the words, including the very sentence the prompt was meant to help
+# ("...NVIDIA I made ten dollars..." vanished entirely). On a full recording it
+# swallowed the opening line, price levels and all.
+#
+# large-v3 transcribes these tickers correctly on its own, so there was nothing
+# to buy in the first place. If you reintroduce this, measure content loss at the
+# start of the file before trusting it.
 
 
 def step_transcribe(audio_path: Path, output_dir: Path, file_stem: str,
@@ -240,8 +236,6 @@ def step_transcribe(audio_path: Path, output_dir: Path, file_stem: str,
     if transcript_path.exists():
         log(f"Transcript already exists: {transcript_path} — skipping transcription")
         return transcript_path
-
-    initial_prompt = _ticker_hint_prompt()
 
     try:
         import mlx_whisper
@@ -256,10 +250,7 @@ def step_transcribe(audio_path: Path, output_dir: Path, file_stem: str,
                 f"Unknown Whisper model '{model_size}' — use one of "
                 f"{', '.join(_MLX_MODELS)} or a full Hugging Face repo path")
         log(f"Transcribing audio with mlx-whisper (model={repo})...")
-        if initial_prompt:
-            log("  biasing decoder with watchlist tickers")
-        result = mlx_whisper.transcribe(
-            str(audio_path), path_or_hf_repo=repo, initial_prompt=initial_prompt)
+        result = mlx_whisper.transcribe(str(audio_path), path_or_hf_repo=repo)
         log(f"Detected language: {result.get('language')}")
         lines = [f"[{s['start']:.1f}s - {s['end']:.1f}s] {s['text'].strip()}"
                  for s in result.get("segments", [])]
@@ -269,8 +260,7 @@ def step_transcribe(audio_path: Path, output_dir: Path, file_stem: str,
         fallback = model_size if model_size in ("tiny", "base", "small", "medium", "large") else "base"
         log(f"mlx-whisper unavailable — falling back to faster-whisper on CPU (model={fallback})")
         model = WhisperModel(fallback, device="cpu", compute_type="int8")
-        segments, info = model.transcribe(str(audio_path), beam_size=5,
-                                          initial_prompt=initial_prompt)
+        segments, info = model.transcribe(str(audio_path), beam_size=5)
         log(f"Detected language: {info.language}")
         lines = [f"[{seg.start:.1f}s - {seg.end:.1f}s] {seg.text.strip()}" for seg in segments]
 
