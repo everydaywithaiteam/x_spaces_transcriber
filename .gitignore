@@ -10,5 +10,5 @@ __pycache__/
 .DS_Store
 .claude/
 
-# YouTube video planning docs — internal, not part of the project
-yt_video_outline*.md
+# YouTube planning / upload docs — internal, not part of the project
+yt_*.md

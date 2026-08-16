@@ -1,0 +1,636 @@
+<title>Download the recording vs use the .vtt — X Spaces Transcriber</title>
+<style>
+  :root {
+    --bg: #f5f2ea;
+    --bg-grid: rgba(32, 29, 24, 0.05);
+    --surface: #ffffff;
+    --surface-2: #efe9db;
+    --border: rgba(28, 24, 18, 0.14);
+    --border-strong: rgba(28, 24, 18, 0.28);
+    --text: #201c15;
+    --text-muted: #6b6558;
+    --text-faint: #948d7d;
+    --accent: #a8671c;
+    --accent-strong: #7d4c12;
+    --accent-soft: rgba(168, 103, 28, 0.14);
+    --accent-2: #2f7a72;
+    --accent-2-soft: rgba(47, 122, 114, 0.14);
+    --new-chip-bg: #a8671c;
+    --new-chip-text: #fff8ec;
+    --shadow: 0 1px 2px rgba(28,24,18,0.04), 0 8px 24px -12px rgba(28,24,18,0.18);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161b;
+      --bg-grid: rgba(255, 255, 255, 0.045);
+      --surface: #1c1f26;
+      --surface-2: #22262e;
+      --border: rgba(255, 255, 255, 0.10);
+      --border-strong: rgba(255, 255, 255, 0.20);
+      --text: #edeef0;
+      --text-muted: #9aa0ab;
+      --text-faint: #6c7280;
+      --accent: #e0a24d;
+      --accent-strong: #f2bd73;
+      --accent-soft: rgba(224, 162, 77, 0.14);
+      --accent-2: #5fc2b6;
+      --accent-2-soft: rgba(95, 194, 182, 0.14);
+      --new-chip-bg: #e0a24d;
+      --new-chip-text: #1a1305;
+      --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 12px 32px -14px rgba(0,0,0,0.55);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14161b;
+    --bg-grid: rgba(255, 255, 255, 0.045);
+    --surface: #1c1f26;
+    --surface-2: #22262e;
+    --border: rgba(255, 255, 255, 0.10);
+    --border-strong: rgba(255, 255, 255, 0.20);
+    --text: #edeef0;
+    --text-muted: #9aa0ab;
+    --text-faint: #6c7280;
+    --accent: #e0a24d;
+    --accent-strong: #f2bd73;
+    --accent-soft: rgba(224, 162, 77, 0.14);
+    --accent-2: #5fc2b6;
+    --accent-2-soft: rgba(95, 194, 182, 0.14);
+    --new-chip-bg: #e0a24d;
+    --new-chip-text: #1a1305;
+    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 12px 32px -14px rgba(0,0,0,0.55);
+  }
+  :root[data-theme="light"] {
+    --bg: #f5f2ea;
+    --bg-grid: rgba(32, 29, 24, 0.05);
+    --surface: #ffffff;
+    --surface-2: #efe9db;
+    --border: rgba(28, 24, 18, 0.14);
+    --border-strong: rgba(28, 24, 18, 0.28);
+    --text: #201c15;
+    --text-muted: #6b6558;
+    --text-faint: #948d7d;
+    --accent: #a8671c;
+    --accent-strong: #7d4c12;
+    --accent-soft: rgba(168, 103, 28, 0.14);
+    --accent-2: #2f7a72;
+    --accent-2-soft: rgba(47, 122, 114, 0.14);
+    --new-chip-bg: #a8671c;
+    --new-chip-text: #fff8ec;
+    --shadow: 0 1px 2px rgba(28,24,18,0.04), 0 8px 24px -12px rgba(28,24,18,0.18);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    background-image:
+      linear-gradient(var(--bg-grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--bg-grid) 1px, transparent 1px);
+    background-size: 28px 28px;
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    display: flex;
+    justify-content: center;
+    padding: 56px 24px;
+  }
+
+  .sheet {
+    width: 100%;
+    max-width: 1360px;
+  }
+
+  .masthead {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 24px;
+    padding-bottom: 22px;
+    margin-bottom: 34px;
+    border-bottom: 1px solid var(--border-strong);
+  }
+
+  .masthead-left { min-width: 0; }
+
+  .eyebrow {
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, monospace;
+    font-size: 12.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 600;
+    margin: 0 0 10px 0;
+  }
+
+  h1 {
+    font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
+    font-weight: 600;
+    font-size: clamp(28px, 3.4vw, 40px);
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+    margin: 0;
+    text-wrap: balance;
+    color: var(--text);
+  }
+
+  .masthead-right {
+    text-align: right;
+    flex-shrink: 0;
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+  .masthead-right .v {
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+  .masthead-right .repo {
+    font-size: 12px;
+    color: var(--text-faint);
+    margin-top: 4px;
+  }
+
+  .subtitle {
+    font-size: 15.5px;
+    color: var(--text-muted);
+    max-width: 62ch;
+    line-height: 1.55;
+    margin: 14px 0 0 0;
+  }
+
+  /* ---- pipeline frame ---- */
+
+  .frame-wrap {
+    position: relative;
+    margin-top: 56px;
+    padding: 34px 30px 30px;
+    border: 1.5px dashed var(--border-strong);
+    border-radius: 20px;
+    background: linear-gradient(180deg, var(--accent-soft), transparent 40%);
+  }
+
+  .frame-tag {
+    position: absolute;
+    top: -15px;
+    left: 26px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--bg);
+    padding: 4px 12px;
+    border: 1.5px dashed var(--border-strong);
+    border-radius: 999px;
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, monospace;
+    font-size: 12px;
+    color: var(--accent-strong);
+    font-weight: 600;
+  }
+
+  .frame-note {
+    position: absolute;
+    top: -15px;
+    right: 26px;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    background: var(--bg);
+    padding: 4px 12px;
+    border: 1.5px dashed var(--border-strong);
+    border-radius: 999px;
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, monospace;
+    font-size: 12px;
+    color: var(--text-muted);
+    font-weight: 500;
+  }
+  .frame-note svg { flex-shrink: 0; }
+
+  .trigger-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 6px 0 26px 2px;
+  }
+  .trigger-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 14px 7px 10px;
+    border-radius: 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow);
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, monospace;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .trigger-pill svg { color: var(--accent); flex-shrink: 0; }
+  .trigger-arrow { color: var(--text-faint); }
+
+  .lane {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    overflow-x: auto;
+    padding-bottom: 6px;
+  }
+
+  .stage-card {
+    position: relative;
+    flex: 1 1 0;
+    min-width: 168px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: var(--shadow);
+    padding: 16px 15px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .stage-card.is-new {
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  }
+
+  .step-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .step-num {
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, monospace;
+    font-size: 12px;
+    color: var(--text-faint);
+    font-weight: 600;
+  }
+
+  .new-chip {
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, monospace;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    font-weight: 700;
+    background: var(--new-chip-bg);
+    color: var(--new-chip-text);
+    padding: 2px 7px;
+    border-radius: 999px;
+  }
+
+  .step-icon {
+    width: 34px;
+    height: 34px;
+    border-radius: 9px;
+    background: var(--accent-soft);
+    color: var(--accent-strong);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .stage-card.is-new .step-icon {
+    background: var(--accent-2-soft);
+    color: var(--accent-2);
+  }
+
+  .step-title {
+    font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    font-weight: 600;
+    font-size: 17px;
+    color: var(--text);
+    margin: 0;
+  }
+
+  .step-tool {
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, monospace;
+    font-size: 11.5px;
+    color: var(--text-muted);
+  }
+
+  .step-desc {
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--text-muted);
+    margin: 0;
+  }
+
+  .connector {
+    flex: 0 0 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-faint);
+    align-self: center;
+  }
+
+  .outputs-row {
+    display: flex;
+    margin-top: 18px;
+  }
+
+  .output-slot {
+    flex: 1 1 0;
+    min-width: 168px;
+    display: flex;
+    justify-content: center;
+  }
+  .output-slot + .output-slot { margin-left: 0; }
+  .lane + .outputs-row .output-slot { position: relative; }
+
+  .output-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 14px;
+    padding: 5px 11px;
+    border-radius: 999px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, monospace;
+    font-size: 11px;
+    color: var(--text-muted);
+    font-weight: 600;
+  }
+  .output-tag svg { color: var(--accent-2); flex-shrink: 0; }
+
+  .output-stem {
+    position: absolute;
+    top: -14px;
+    left: 50%;
+    width: 1px;
+    height: 14px;
+    background: var(--border-strong);
+  }
+
+  /* legend / footer */
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 22px;
+    margin-top: 40px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 12.5px;
+    color: var(--text-muted);
+  }
+  .legend-swatch {
+    width: 11px; height: 11px; border-radius: 3px; flex-shrink: 0;
+  }
+
+  @media (max-width: 900px) {
+    .lane { flex-direction: column; }
+    .connector { transform: rotate(90deg); align-self: center; flex-basis: 20px; }
+    .outputs-row { flex-direction: column; gap: 4px; }
+    .output-slot { justify-content: flex-start; padding-left: 4px; }
+    .output-stem { display: none; }
+    .masthead { flex-direction: column; align-items: flex-start; }
+    .masthead-right { text-align: left; }
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .stage-card { transition: transform 160ms ease, box-shadow 160ms ease; }
+  }
+</style>
+<style>
+  .vs-grid {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 0 26px;
+    align-items: stretch;
+    margin-top: 48px;
+  }
+  .vs-col {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    box-shadow: var(--shadow);
+    padding: 26px 24px 22px;
+    position: relative;
+  }
+  .vs-col.loser  { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
+  .vs-col.winner { border-color: color-mix(in srgb, var(--accent-2) 55%, var(--border)); }
+
+  .vs-badge {
+    position: absolute; top: -13px; left: 22px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 10.5px; font-weight: 700; letter-spacing: .07em;
+    padding: 3px 10px; border-radius: 999px;
+  }
+  .vs-col.loser  .vs-badge { background: var(--accent);   color: var(--new-chip-text); }
+  .vs-col.winner .vs-badge { background: var(--accent-2); color: var(--new-chip-text); }
+
+  .vs-head { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
+  .vs-icon {
+    width: 40px; height: 40px; border-radius: 11px;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .vs-col.loser  .vs-icon { background: var(--accent-soft);   color: var(--accent-strong); }
+  .vs-col.winner .vs-icon { background: var(--accent-2-soft); color: var(--accent-2); }
+  .vs-title {
+    font-family: "Iowan Old Style", Palatino, Georgia, serif;
+    font-size: 21px; font-weight: 600; margin: 0; color: var(--text);
+  }
+  .vs-sub {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 11.5px; color: var(--text-muted); margin: 2px 0 0 0;
+  }
+
+  .vs-rows { margin-top: 20px; border-top: 1px solid var(--border); }
+  .vs-row {
+    display: flex; align-items: flex-start; gap: 12px;
+    padding: 13px 0; border-bottom: 1px solid var(--border);
+  }
+  .vs-row:last-child { border-bottom: 0; }
+  .vs-mark { flex-shrink: 0; margin-top: 1px; }
+  .vs-col.loser  .vs-mark { color: var(--accent-strong); }
+  .vs-col.winner .vs-mark { color: var(--accent-2); }
+  .vs-label {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 10.5px; letter-spacing: .07em; text-transform: uppercase;
+    color: var(--text-faint); margin: 0 0 3px 0;
+  }
+  .vs-value { font-size: 14.5px; color: var(--text); margin: 0; line-height: 1.45; }
+  .vs-value strong { font-weight: 650; }
+  .vs-note { font-size: 12.5px; color: var(--text-muted); margin: 3px 0 0 0; line-height: 1.45; }
+
+  .vs-mid {
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 10px; padding-top: 30px;
+  }
+  .vs-mid-line { width: 1px; flex: 1; background: var(--border-strong); }
+  .vs-mid-pill {
+    font-family: "Iowan Old Style", Palatino, Georgia, serif;
+    font-style: italic; font-size: 15px; color: var(--text-faint);
+    background: var(--bg); padding: 6px 0;
+  }
+
+  .verdict {
+    margin-top: 34px;
+    border: 1.5px dashed var(--border-strong);
+    border-radius: 16px;
+    padding: 22px 26px;
+    background: linear-gradient(180deg, var(--accent-2-soft), transparent 60%);
+    position: relative;
+  }
+  .verdict-tag {
+    position: absolute; top: -14px; left: 24px;
+    background: var(--bg); padding: 3px 12px;
+    border: 1.5px dashed var(--border-strong); border-radius: 999px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 11.5px; font-weight: 600; color: var(--accent-2);
+  }
+  .verdict p {
+    margin: 0; font-size: 16px; line-height: 1.6; color: var(--text);
+    max-width: 88ch;
+  }
+  .verdict strong { font-weight: 650; }
+  @media (max-width: 900px) {
+    .vs-grid { grid-template-columns: 1fr; gap: 30px; }
+    .vs-mid { display: none; }
+  }
+</style>
+
+<div class="sheet">
+
+  <div class="masthead">
+    <div class="masthead-left">
+      <p class="eyebrow">X Spaces Transcriber — build log</p>
+      <h1>Two ways into a Zoom episode. One of them is free.</h1>
+      <p class="subtitle">Downloading the recording means paying for a video I never watch, then throwing most of it away. The transcript Zoom already publishes skips the two most expensive stages of the pipeline — and arrives with speaker names attached.</p>
+    </div>
+    <div class="masthead-right">
+      <div class="v">v2.1</div>
+      <div class="repo">github.com/everydaywithaiteam/x_spaces_transcriber</div>
+    </div>
+  </div>
+
+  <div class="vs-grid">
+
+    <div class="vs-col loser">
+      <span class="vs-badge">THE OBVIOUS WAY</span>
+      <div class="vs-head">
+        <div class="vs-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M15 10l5-3v10l-5-3z"/><rect x="3" y="6" width="12" height="12" rx="2"/></svg>
+        </div>
+        <div>
+          <p class="vs-title">Download the recording</p>
+          <p class="vs-sub">yt-dlp → ffmpeg → Whisper</p>
+        </div>
+      </div>
+
+      <div class="vs-rows">
+        <div class="vs-row">
+          <span class="vs-mark"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg></span>
+          <div>
+            <p class="vs-label">Transfer</p>
+            <p class="vs-value"><strong>1–2 GB</strong> of video</p>
+            <p class="vs-note">For a show that is one person talking over a chart.</p>
+          </div>
+        </div>
+        <div class="vs-row">
+          <span class="vs-mark"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg></span>
+          <div>
+            <p class="vs-label">Audio extract</p>
+            <p class="vs-value">ffmpeg pass required</p>
+          </div>
+        </div>
+        <div class="vs-row">
+          <span class="vs-mark"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg></span>
+          <div>
+            <p class="vs-label">Transcription</p>
+            <p class="vs-value"><strong>14–21 min</strong> on the GPU</p>
+            <p class="vs-note">The slowest stage in the whole pipeline.</p>
+          </div>
+        </div>
+        <div class="vs-row">
+          <span class="vs-mark"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg></span>
+          <div>
+            <p class="vs-label">Speaker names</p>
+            <p class="vs-value">Claude has to infer them</p>
+            <p class="vs-note">Guesswork — and a wrong guess attributes a stock pick to the wrong person.</p>
+          </div>
+        </div>
+        <div class="vs-row">
+          <span class="vs-mark"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg></span>
+          <div>
+            <p class="vs-label">Does it work?</p>
+            <p class="vs-value"><strong>No.</strong> yt-dlp can't do it</p>
+            <p class="vs-note">Passcode links hit a deprecated endpoint — every script built on it is broken.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="vs-mid">
+      <span class="vs-mid-line"></span>
+      <span class="vs-mid-pill">vs</span>
+      <span class="vs-mid-line"></span>
+    </div>
+
+    <div class="vs-col winner">
+      <span class="vs-badge">WHAT I SHIPPED</span>
+      <div class="vs-head">
+        <div class="vs-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M8 13h8M8 17h5"/></svg>
+        </div>
+        <div>
+          <p class="vs-title">Use the .vtt transcript</p>
+          <p class="vs-sub">vtt_ingest.py → Claude</p>
+        </div>
+      </div>
+
+      <div class="vs-rows">
+        <div class="vs-row">
+          <span class="vs-mark"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span>
+          <div>
+            <p class="vs-label">Transfer</p>
+            <p class="vs-value"><strong>~100 KB</strong> of text</p>
+            <p class="vs-note">Roughly ten thousand times smaller.</p>
+          </div>
+        </div>
+        <div class="vs-row">
+          <span class="vs-mark"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span>
+          <div>
+            <p class="vs-label">Audio extract</p>
+            <p class="vs-value">Not needed</p>
+          </div>
+        </div>
+        <div class="vs-row">
+          <span class="vs-mark"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span>
+          <div>
+            <p class="vs-label">Transcription</p>
+            <p class="vs-value"><strong>Zero.</strong> It's already text</p>
+            <p class="vs-note">Parsing 408 cues into 69 turns takes milliseconds.</p>
+          </div>
+        </div>
+        <div class="vs-row">
+          <span class="vs-mark"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span>
+          <div>
+            <p class="vs-label">Speaker names</p>
+            <p class="vs-value"><strong>Included</strong> by Zoom</p>
+            <p class="vs-note">Real attribution, so the summary never has to guess who said what.</p>
+          </div>
+        </div>
+        <div class="vs-row">
+          <span class="vs-mark"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span>
+          <div>
+            <p class="vs-label">Does it work?</p>
+            <p class="vs-value"><strong>Yes</strong> — one file, one command</p>
+            <p class="vs-note">Drop it in a folder and the existing pipeline takes it from there.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="verdict">
+    <span class="verdict-tag">the part I got wrong</span>
+    <p>I spent an afternoon trying to defeat the download before noticing the transcript button sitting next to the player. The route I'd dismissed as <em>second best</em> was strictly better on every axis — <strong>smaller, faster, more accurate, and it actually works.</strong></p>
+  </div>
+
+</div>

@@ -1,0 +1,620 @@
+<title>Why yt-dlp can't download a passcode-protected Zoom recording</title>
+<style>
+  :root {
+    --bg: #f5f2ea;
+    --bg-grid: rgba(32, 29, 24, 0.05);
+    --surface: #ffffff;
+    --surface-2: #efe9db;
+    --border: rgba(28, 24, 18, 0.14);
+    --border-strong: rgba(28, 24, 18, 0.28);
+    --text: #201c15;
+    --text-muted: #6b6558;
+    --text-faint: #948d7d;
+    --accent: #a8671c;
+    --accent-strong: #7d4c12;
+    --accent-soft: rgba(168, 103, 28, 0.14);
+    --accent-2: #2f7a72;
+    --accent-2-soft: rgba(47, 122, 114, 0.14);
+    --new-chip-bg: #a8671c;
+    --new-chip-text: #fff8ec;
+    --shadow: 0 1px 2px rgba(28,24,18,0.04), 0 8px 24px -12px rgba(28,24,18,0.18);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161b;
+      --bg-grid: rgba(255, 255, 255, 0.045);
+      --surface: #1c1f26;
+      --surface-2: #22262e;
+      --border: rgba(255, 255, 255, 0.10);
+      --border-strong: rgba(255, 255, 255, 0.20);
+      --text: #edeef0;
+      --text-muted: #9aa0ab;
+      --text-faint: #6c7280;
+      --accent: #e0a24d;
+      --accent-strong: #f2bd73;
+      --accent-soft: rgba(224, 162, 77, 0.14);
+      --accent-2: #5fc2b6;
+      --accent-2-soft: rgba(95, 194, 182, 0.14);
+      --new-chip-bg: #e0a24d;
+      --new-chip-text: #1a1305;
+      --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 12px 32px -14px rgba(0,0,0,0.55);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14161b;
+    --bg-grid: rgba(255, 255, 255, 0.045);
+    --surface: #1c1f26;
+    --surface-2: #22262e;
+    --border: rgba(255, 255, 255, 0.10);
+    --border-strong: rgba(255, 255, 255, 0.20);
+    --text: #edeef0;
+    --text-muted: #9aa0ab;
+    --text-faint: #6c7280;
+    --accent: #e0a24d;
+    --accent-strong: #f2bd73;
+    --accent-soft: rgba(224, 162, 77, 0.14);
+    --accent-2: #5fc2b6;
+    --accent-2-soft: rgba(95, 194, 182, 0.14);
+    --new-chip-bg: #e0a24d;
+    --new-chip-text: #1a1305;
+    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 12px 32px -14px rgba(0,0,0,0.55);
+  }
+  :root[data-theme="light"] {
+    --bg: #f5f2ea;
+    --bg-grid: rgba(32, 29, 24, 0.05);
+    --surface: #ffffff;
+    --surface-2: #efe9db;
+    --border: rgba(28, 24, 18, 0.14);
+    --border-strong: rgba(28, 24, 18, 0.28);
+    --text: #201c15;
+    --text-muted: #6b6558;
+    --text-faint: #948d7d;
+    --accent: #a8671c;
+    --accent-strong: #7d4c12;
+    --accent-soft: rgba(168, 103, 28, 0.14);
+    --accent-2: #2f7a72;
+    --accent-2-soft: rgba(47, 122, 114, 0.14);
+    --new-chip-bg: #a8671c;
+    --new-chip-text: #fff8ec;
+    --shadow: 0 1px 2px rgba(28,24,18,0.04), 0 8px 24px -12px rgba(28,24,18,0.18);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    background-image:
+      linear-gradient(var(--bg-grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--bg-grid) 1px, transparent 1px);
+    background-size: 28px 28px;
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    display: flex;
+    justify-content: center;
+    padding: 56px 24px;
+  }
+
+  .sheet {
+    width: 100%;
+    max-width: 1360px;
+  }
+
+  .masthead {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 24px;
+    padding-bottom: 22px;
+    margin-bottom: 34px;
+    border-bottom: 1px solid var(--border-strong);
+  }
+
+  .masthead-left { min-width: 0; }
+
+  .eyebrow {
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, monospace;
+    font-size: 12.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 600;
+    margin: 0 0 10px 0;
+  }
+
+  h1 {
+    font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
+    font-weight: 600;
+    font-size: clamp(28px, 3.4vw, 40px);
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+    margin: 0;
+    text-wrap: balance;
+    color: var(--text);
+  }
+
+  .masthead-right {
+    text-align: right;
+    flex-shrink: 0;
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+  .masthead-right .v {
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+  .masthead-right .repo {
+    font-size: 12px;
+    color: var(--text-faint);
+    margin-top: 4px;
+  }
+
+  .subtitle {
+    font-size: 15.5px;
+    color: var(--text-muted);
+    max-width: 62ch;
+    line-height: 1.55;
+    margin: 14px 0 0 0;
+  }
+
+  /* ---- pipeline frame ---- */
+
+  .frame-wrap {
+    position: relative;
+    margin-top: 56px;
+    padding: 34px 30px 30px;
+    border: 1.5px dashed var(--border-strong);
+    border-radius: 20px;
+    background: linear-gradient(180deg, var(--accent-soft), transparent 40%);
+  }
+
+  .frame-tag {
+    position: absolute;
+    top: -15px;
+    left: 26px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--bg);
+    padding: 4px 12px;
+    border: 1.5px dashed var(--border-strong);
+    border-radius: 999px;
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, monospace;
+    font-size: 12px;
+    color: var(--accent-strong);
+    font-weight: 600;
+  }
+
+  .frame-note {
+    position: absolute;
+    top: -15px;
+    right: 26px;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    background: var(--bg);
+    padding: 4px 12px;
+    border: 1.5px dashed var(--border-strong);
+    border-radius: 999px;
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, monospace;
+    font-size: 12px;
+    color: var(--text-muted);
+    font-weight: 500;
+  }
+  .frame-note svg { flex-shrink: 0; }
+
+  .trigger-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 6px 0 26px 2px;
+  }
+  .trigger-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 14px 7px 10px;
+    border-radius: 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow);
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, monospace;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .trigger-pill svg { color: var(--accent); flex-shrink: 0; }
+  .trigger-arrow { color: var(--text-faint); }
+
+  .lane {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    overflow-x: auto;
+    padding-bottom: 6px;
+  }
+
+  .stage-card {
+    position: relative;
+    flex: 1 1 0;
+    min-width: 168px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: var(--shadow);
+    padding: 16px 15px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .stage-card.is-new {
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  }
+
+  .step-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .step-num {
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, monospace;
+    font-size: 12px;
+    color: var(--text-faint);
+    font-weight: 600;
+  }
+
+  .new-chip {
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, monospace;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    font-weight: 700;
+    background: var(--new-chip-bg);
+    color: var(--new-chip-text);
+    padding: 2px 7px;
+    border-radius: 999px;
+  }
+
+  .step-icon {
+    width: 34px;
+    height: 34px;
+    border-radius: 9px;
+    background: var(--accent-soft);
+    color: var(--accent-strong);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .stage-card.is-new .step-icon {
+    background: var(--accent-2-soft);
+    color: var(--accent-2);
+  }
+
+  .step-title {
+    font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    font-weight: 600;
+    font-size: 17px;
+    color: var(--text);
+    margin: 0;
+  }
+
+  .step-tool {
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, monospace;
+    font-size: 11.5px;
+    color: var(--text-muted);
+  }
+
+  .step-desc {
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--text-muted);
+    margin: 0;
+  }
+
+  .connector {
+    flex: 0 0 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-faint);
+    align-self: center;
+  }
+
+  .outputs-row {
+    display: flex;
+    margin-top: 18px;
+  }
+
+  .output-slot {
+    flex: 1 1 0;
+    min-width: 168px;
+    display: flex;
+    justify-content: center;
+  }
+  .output-slot + .output-slot { margin-left: 0; }
+  .lane + .outputs-row .output-slot { position: relative; }
+
+  .output-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 14px;
+    padding: 5px 11px;
+    border-radius: 999px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, monospace;
+    font-size: 11px;
+    color: var(--text-muted);
+    font-weight: 600;
+  }
+  .output-tag svg { color: var(--accent-2); flex-shrink: 0; }
+
+  .output-stem {
+    position: absolute;
+    top: -14px;
+    left: 50%;
+    width: 1px;
+    height: 14px;
+    background: var(--border-strong);
+  }
+
+  /* legend / footer */
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 22px;
+    margin-top: 40px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 12.5px;
+    color: var(--text-muted);
+  }
+  .legend-swatch {
+    width: 11px; height: 11px; border-radius: 3px; flex-shrink: 0;
+  }
+
+  @media (max-width: 900px) {
+    .lane { flex-direction: column; }
+    .connector { transform: rotate(90deg); align-self: center; flex-basis: 20px; }
+    .outputs-row { flex-direction: column; gap: 4px; }
+    .output-slot { justify-content: flex-start; padding-left: 4px; }
+    .output-stem { display: none; }
+    .masthead { flex-direction: column; align-items: flex-start; }
+    .masthead-right { text-align: left; }
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .stage-card { transition: transform 160ms ease, box-shadow 160ms ease; }
+  }
+</style>
+<style>
+  /* ---- shared: request-flow / comparison-flow diagrams ---- */
+  .flow {
+    display: flex; align-items: stretch; gap: 0;
+    overflow-x: auto; padding-bottom: 6px; margin-top: 14px;
+  }
+  .node {
+    position: relative; flex: 1 1 0; min-width: 150px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 13px; box-shadow: var(--shadow);
+    padding: 15px 14px 16px;
+    display: flex; flex-direction: column; gap: 7px;
+  }
+  .node.ok   { border-color: color-mix(in srgb, var(--accent-2) 50%, var(--border)); }
+  .node.dead { border-color: color-mix(in srgb, #c0392b 45%, var(--border)); }
+  .node-step {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 11px; color: var(--text-faint); font-weight: 600;
+  }
+  .node-icon {
+    width: 30px; height: 30px; border-radius: 8px;
+    background: var(--accent-soft); color: var(--accent-strong);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .node.ok   .node-icon { background: var(--accent-2-soft); color: var(--accent-2); }
+  .node.dead .node-icon { background: rgba(192,57,43,.14); color: #c0392b; }
+  .node-title {
+    font-family: "Iowan Old Style", Palatino, Georgia, serif;
+    font-weight: 600; font-size: 15.5px; margin: 0; color: var(--text);
+  }
+  .node-code {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 10.5px; color: var(--text-muted); word-break: break-all; margin: 0;
+  }
+  .node-desc { font-size: 12px; line-height: 1.45; color: var(--text-muted); margin: 0; }
+  .node-flag {
+    display: inline-flex; align-items: center; gap: 5px; margin-top: 2px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 10.5px; font-weight: 700; letter-spacing: .04em;
+    padding: 3px 8px; border-radius: 999px;
+    background: rgba(192,57,43,.14); color: #c0392b; align-self: flex-start;
+  }
+  .node-flag.good { background: var(--accent-2-soft); color: var(--accent-2); }
+  .arrow {
+    flex: 0 0 26px; display: flex; align-items: center; justify-content: center;
+    color: var(--text-faint); align-self: center;
+  }
+  .arrow.broken { color: #c0392b; }
+
+  .band {
+    margin-top: 46px; padding: 30px 26px 26px;
+    border: 1.5px dashed var(--border-strong); border-radius: 18px;
+    position: relative;
+  }
+  .band.bad  { background: linear-gradient(180deg, rgba(192,57,43,.10), transparent 45%); }
+  .band.good { background: linear-gradient(180deg, var(--accent-2-soft), transparent 45%); }
+  .band-tag {
+    position: absolute; top: -14px; left: 24px;
+    background: var(--bg); padding: 3px 13px;
+    border: 1.5px dashed var(--border-strong); border-radius: 999px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 11.5px; font-weight: 600;
+  }
+  .band.bad  .band-tag { color: #c0392b; }
+  .band.good .band-tag { color: var(--accent-2); }
+  .band-sub {
+    font-size: 13px; color: var(--text-muted); margin: 0 0 4px 0; line-height: 1.5;
+  }
+
+  .callout {
+    margin-top: 32px; border: 1.5px dashed var(--border-strong);
+    border-radius: 16px; padding: 22px 26px; position: relative;
+    background: linear-gradient(180deg, var(--accent-soft), transparent 60%);
+  }
+  .callout-tag {
+    position: absolute; top: -14px; left: 24px;
+    background: var(--bg); padding: 3px 12px;
+    border: 1.5px dashed var(--border-strong); border-radius: 999px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 11.5px; font-weight: 600; color: var(--accent-strong);
+  }
+  .callout p { margin: 0; font-size: 15.5px; line-height: 1.6; color: var(--text); max-width: 90ch; }
+  .callout code {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 13.5px; background: var(--surface-2);
+    padding: 1px 6px; border-radius: 5px;
+  }
+  .stat-row { display: flex; gap: 16px; margin-top: 26px; flex-wrap: wrap; }
+  .stat {
+    flex: 1 1 0; min-width: 150px; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 13px;
+    box-shadow: var(--shadow); padding: 16px 16px 15px;
+  }
+  .stat-label {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 10.5px; letter-spacing: .07em; text-transform: uppercase;
+    color: var(--text-faint); margin: 0 0 6px 0;
+  }
+  .stat-value {
+    font-family: "Iowan Old Style", Palatino, Georgia, serif;
+    font-size: 25px; font-weight: 600; margin: 0; color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+  .stat-value .was { color: var(--text-faint); font-size: 19px; }
+  .stat-value .now { color: var(--accent-2); }
+  .stat-note { font-size: 11.5px; color: var(--text-muted); margin: 5px 0 0 0; line-height: 1.4; }
+  @media (max-width: 900px) { .flow { flex-direction: column; } .arrow { transform: rotate(90deg); padding: 6px 0; } }
+</style>
+
+<div class="sheet">
+
+  <div class="masthead">
+    <div class="masthead-left">
+      <p class="eyebrow">X Spaces Transcriber — build log</p>
+      <h1>Why yt-dlp can't download a passcode-protected Zoom recording.</h1>
+      <p class="subtitle">It isn't a wrong password or an expired link. yt-dlp asks Zoom what to do, Zoom answers <em>“ask the user for a passcode”</em> — and yt-dlp follows the redirect instead of submitting one. The endpoint it would have posted to is gone anyway.</p>
+    </div>
+    <div class="masthead-right">
+      <div class="v">v2.1</div>
+      <div class="repo">github.com/everydaywithaiteam/x_spaces_transcriber</div>
+    </div>
+  </div>
+
+  <div class="band bad">
+    <span class="band-tag">what actually happens</span>
+    <p class="band-sub">Four calls. The first two succeed, which is what makes this confusing to debug.</p>
+    <div class="flow">
+
+      <div class="node ok">
+        <span class="node-step">01</span>
+        <div class="node-icon">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>
+        </div>
+        <p class="node-title">Load share page</p>
+        <p class="node-code">/rec/share/&lt;id&gt;</p>
+        <p class="node-desc">Page loads fine. The recording exists and hasn't expired.</p>
+        <span class="node-flag good">200 OK</span>
+      </div>
+
+      <div class="arrow"><svg width="20" height="12" viewBox="0 0 20 12" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 6h16M13 1l5 5-5 5"/></svg></div>
+
+      <div class="node ok">
+        <span class="node-step">02</span>
+        <div class="node-icon">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M4 12h16M4 17h10"/></svg>
+        </div>
+        <p class="node-title">Read page data</p>
+        <p class="node-code">window.__data__ → meetingId</p>
+        <p class="node-desc">The meeting ID parses correctly. So far nothing is wrong.</p>
+        <span class="node-flag good">parsed</span>
+      </div>
+
+      <div class="arrow"><svg width="20" height="12" viewBox="0 0 20 12" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 6h16M13 1l5 5-5 5"/></svg></div>
+
+      <div class="node dead">
+        <span class="node-step">03</span>
+        <div class="node-icon">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+        </div>
+        <p class="node-title">Ask for the file</p>
+        <p class="node-code">/play/share-info/&lt;id&gt;</p>
+        <p class="node-desc">Zoom replies <code>componentName: "need-password"</code> and a redirect to a passcode page.</p>
+        <span class="node-flag">passcode required</span>
+      </div>
+
+      <div class="arrow broken"><svg width="20" height="12" viewBox="0 0 20 12" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="3 3"><path d="M1 6h16M13 1l5 5-5 5"/></svg></div>
+
+      <div class="node dead">
+        <span class="node-step">04</span>
+        <div class="node-icon">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </div>
+        <p class="node-title">Follows the redirect</p>
+        <p class="node-code">/rec/component-page</p>
+        <p class="node-desc">Lands on an empty SPA shell with no data to read, and gives up.</p>
+        <span class="node-flag">Unable to extract data</span>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="band bad" style="margin-top:34px">
+    <span class="band-tag">the second dead end</span>
+    <p class="band-sub">Even patched to submit the passcode, there is nowhere left to send it.</p>
+    <div class="flow">
+      <div class="node dead">
+        <span class="node-step">—</span>
+        <div class="node-icon">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l9 5v6c0 5-3.8 8.4-9 9-5.2-.6-9-4-9-9V7z"/><path d="M9 12l2 2 4-4"/></svg>
+        </div>
+        <p class="node-title">Submit the passcode</p>
+        <p class="node-code">POST /rec/validate_meet_passwd</p>
+        <p class="node-desc">The endpoint every script and gist for this posts to.</p>
+      </div>
+      <div class="arrow broken"><svg width="20" height="12" viewBox="0 0 20 12" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="3 3"><path d="M1 6h16M13 1l5 5-5 5"/></svg></div>
+      <div class="node dead" style="flex:2 1 0">
+        <span class="node-step">response</span>
+        <div class="node-icon">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.01"/></svg>
+        </div>
+        <p class="node-title">“This API has been deprecated”</p>
+        <p class="node-code">{"status": false, "errorCode": 400}</p>
+        <p class="node-desc">Not rate-limited, not a wrong passcode. Removed server-side — so every tool built on it is broken, not just yt-dlp.</p>
+        <span class="node-flag">gone for everyone</span>
+      </div>
+      <div class="arrow"></div>
+      <div class="node" style="flex:1.2 1 0">
+        <span class="node-step">and</span>
+        <div class="node-icon">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 9h8M8 13h5"/></svg>
+        </div>
+        <p class="node-title">The new page loads a captcha</p>
+        <p class="node-desc">So reverse-engineering the replacement isn't a path worth building on either.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout">
+    <span class="callout-tag">the takeaway</span>
+    <p><code>--video-password</code> is dead code on this path — yt-dlp never reaches the point of using it. That's why the error says <em>“Unable to extract data”</em> rather than <em>“wrong password”</em>, and why hours of retrying passcodes gets you nowhere.</p>
+  </div>
+
+</div>

@@ -1,4 +1,4 @@
-<title>X Spaces Transcriber — Pipeline v2.0</title>
+<title>X Spaces Transcriber — Pipeline v2.1</title>
 <style>
   :root {
     --bg: #f5f2ea;
@@ -395,93 +395,208 @@
     .stage-card { transition: transform 160ms ease, box-shadow 160ms ease; }
   }
 </style>
+<style>
+  /* ---- v2.1 additions: two source lanes converging on a shared pipeline ---- */
+  .sources {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 22px;
+    margin-bottom: 8px;
+  }
+  .source-col {
+    border: 1.5px dashed var(--border-strong);
+    border-radius: 18px;
+    padding: 30px 20px 20px;
+    position: relative;
+    background: linear-gradient(180deg, var(--accent-soft), transparent 45%);
+  }
+  .source-col.is-new {
+    background: linear-gradient(180deg, var(--accent-2-soft), transparent 45%);
+  }
+  .source-tag {
+    position: absolute;
+    top: -14px; left: 22px;
+    display: inline-flex; align-items: center; gap: 7px;
+    background: var(--bg);
+    padding: 3px 12px;
+    border: 1.5px dashed var(--border-strong);
+    border-radius: 999px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 11.5px; font-weight: 600;
+    color: var(--accent-strong);
+  }
+  .source-col.is-new .source-tag { color: var(--accent-2); }
+  .source-chip {
+    position: absolute;
+    top: -14px; right: 22px;
+    background: var(--new-chip-bg); color: var(--new-chip-text);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 10px; font-weight: 700; letter-spacing: .06em;
+    padding: 3px 9px; border-radius: 999px;
+  }
+  .source-lane { display: flex; align-items: stretch; gap: 0; }
+  .source-lane .stage-card { min-width: 0; }
+
+  .merge {
+    display: flex; align-items: center; justify-content: center;
+    gap: 14px; margin: 26px 0 20px;
+    color: var(--text-faint);
+  }
+  .merge-line { flex: 1; height: 1px; background: var(--border-strong); }
+  .merge-pill {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow);
+    padding: 8px 16px; border-radius: 999px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 12.5px; font-weight: 600; color: var(--text);
+  }
+  .merge-pill svg { color: var(--accent-2); }
+
+  .note-strip {
+    margin-top: 12px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 11.5px;
+    color: var(--text-faint);
+    text-align: center;
+  }
+  .skip-badge {
+    display:inline-flex; align-items:center; gap:6px;
+    margin-top: 2px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 11px; font-weight: 600;
+    color: var(--accent-2);
+    background: var(--accent-2-soft);
+    border-radius: 999px; padding: 3px 10px;
+  }
+  @media (max-width: 900px) { .sources { grid-template-columns: 1fr; } }
+</style>
 
 <div class="sheet">
 
   <div class="masthead">
     <div class="masthead-left">
       <p class="eyebrow">X Spaces Transcriber — build log</p>
-      <h1>From a live audio Space to a searchable archive, unattended.</h1>
-      <p class="subtitle">Six stages, one scheduled runner. Every stage retries independently — a failed email or a rejected Notion sync doesn't cost a re-transcription.</p>
+      <h1>Two shows, two front doors, one pipeline.</h1>
+      <p class="subtitle">An X Space arrives as audio and needs transcribing. A Zoom episode arrives as a transcript and doesn't. Everything after that point — summarize, deliver, alert, archive — is the same code for both.</p>
     </div>
     <div class="masthead-right">
-      <div class="v">v2.0</div>
+      <div class="v">v2.1</div>
       <div class="repo">github.com/everydaywithaiteam/x_spaces_transcriber</div>
     </div>
   </div>
 
-  <div class="trigger-row">
-    <span class="trigger-pill">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 19h16"/></svg>
-      New Space detected on @StocksOnSpaces
+  <div class="sources">
+
+    <div class="source-col">
+      <span class="source-tag">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.3-6.4L21 8M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.3 6.4L3 16M3 21v-5h5"/></svg>
+        check_and_run.py — scheduled
+      </span>
+      <div class="trigger-row">
+        <span class="trigger-pill">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 19h16"/></svg>
+          New Space on @StocksOnSpaces
+        </span>
+      </div>
+      <div class="source-lane">
+        <div class="stage-card">
+          <div class="step-top"><span class="step-num">01</span></div>
+          <div class="step-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 19h16"/></svg>
+          </div>
+          <p class="step-title">Download</p>
+          <p class="step-tool">yt-dlp</p>
+          <p class="step-desc">Pulls the Space audio as .m4a — roughly 100&nbsp;MB per episode.</p>
+        </div>
+        <div class="connector">
+          <svg width="20" height="12" viewBox="0 0 20 12" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 6h16M13 1l5 5-5 5"/></svg>
+        </div>
+        <div class="stage-card is-new">
+          <div class="step-top"><span class="step-num">02</span><span class="new-chip">GPU</span></div>
+          <div class="step-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3"/></svg>
+          </div>
+          <p class="step-title">Transcribe</p>
+          <p class="step-tool">mlx-whisper · large-v3</p>
+          <p class="step-desc">Runs on the GPU and Neural Engine. Watchlist tickers are fed in as decoder vocabulary.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="source-col is-new">
+      <span class="source-tag">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="M4 9h16"/></svg>
+        zoom_ingest.py — watches a folder
+      </span>
+      <span class="source-chip">NEW</span>
+      <div class="trigger-row">
+        <span class="trigger-pill">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg>
+          .vtt dropped in transcripts_in/
+        </span>
+      </div>
+      <div class="source-lane">
+        <div class="stage-card is-new">
+          <div class="step-top"><span class="step-num">01</span></div>
+          <div class="step-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h10M4 18h13"/></svg>
+          </div>
+          <p class="step-title">Parse</p>
+          <p class="step-tool">vtt_ingest.py</p>
+          <p class="step-desc">408 cues become 69 speaker-labelled turns, one timestamp a minute.</p>
+        </div>
+        <div class="connector">
+          <svg width="20" height="12" viewBox="0 0 20 12" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 6h16M13 1l5 5-5 5"/></svg>
+        </div>
+        <div class="stage-card is-new">
+          <div class="step-top"><span class="step-num">02</span></div>
+          <div class="step-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+          </div>
+          <p class="step-title">No transcription</p>
+          <p class="step-tool">already text</p>
+          <p class="step-desc">Zoom ships an Audio Transcript with speaker names. Nothing to download, nothing to run.</p>
+          <span class="skip-badge">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>
+            two stages skipped
+          </span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="merge">
+    <span class="merge-line"></span>
+    <span class="merge-pill">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v6a4 4 0 0 0 4 4h8"/><path d="M20 4v6a4 4 0 0 1-4 4H8"/><path d="M12 14v6"/></svg>
+      both paths produce a transcript — everything below is shared
     </span>
-    <span class="trigger-arrow">
-      <svg width="18" height="10" viewBox="0 0 18 10" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 5h14M11 1l4 4-4 4"/></svg>
-    </span>
+    <span class="merge-line"></span>
   </div>
 
   <div class="frame-wrap">
     <span class="frame-tag">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.3-6.4L21 8M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.3 6.4L3 16M3 21v-5h5"/></svg>
-      check_and_run.py — scheduled, catch-up + retry
+      shared pipeline — one state file, per-stage retry
     </span>
     <span class="frame-note">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
-      runs daily, oldest-unprocessed-first
+      a failed send retries without re-summarizing
     </span>
 
     <div class="lane">
 
-      <div class="stage-card">
-        <div class="step-top"><span class="step-num">01</span></div>
+      <div class="stage-card is-new">
+        <div class="step-top"><span class="step-num">03</span><span class="new-chip">JSON</span></div>
         <div class="step-icon">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 19h16"/></svg>
-        </div>
-        <p class="step-title">Download</p>
-        <p class="step-tool">yt-dlp</p>
-        <p class="step-desc">Pulls the Space audio as .m4a — free, no API needed.</p>
-      </div>
-
-      <div class="connector">
-        <svg width="20" height="12" viewBox="0 0 20 12" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 6h16M13 1l5 5-5 5"/></svg>
-      </div>
-
-      <div class="stage-card">
-        <div class="step-top"><span class="step-num">02</span></div>
-        <div class="step-icon">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h3l2-7 4 14 2-7h7"/></svg>
-        </div>
-        <p class="step-title">Transcribe</p>
-        <p class="step-tool">faster-whisper</p>
-        <p class="step-desc">Local speech-to-text, plus optional pyannote speaker diarization.</p>
-      </div>
-
-      <div class="connector">
-        <svg width="20" height="12" viewBox="0 0 20 12" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 6h16M13 1l5 5-5 5"/></svg>
-      </div>
-
-      <div class="stage-card">
-        <div class="step-top"><span class="step-num">03</span></div>
-        <div class="step-icon">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.2 5.8L20 11l-5.8 2.2L12 19l-2.2-5.8L4 11l5.8-2.2z"/></svg>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H7a2 2 0 0 0-2 2v4a2 2 0 0 1-2 2 2 2 0 0 1 2 2v4a2 2 0 0 0 2 2h1"/><path d="M16 3h1a2 2 0 0 1 2 2v4a2 2 0 0 0 2 2 2 2 0 0 0-2 2v4a2 2 0 0 1-2 2h-1"/></svg>
         </div>
         <p class="step-title">Summarize</p>
-        <p class="step-tool">Claude API</p>
-        <p class="step-desc">Host-focused summary, plus a parsed <span style="white-space:nowrap">$TICKER</span> list per Space.</p>
-      </div>
-
-      <div class="connector">
-        <svg width="20" height="12" viewBox="0 0 20 12" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 6h16M13 1l5 5-5 5"/></svg>
-      </div>
-
-      <div class="stage-card">
-        <div class="step-top"><span class="step-num">04</span></div>
-        <div class="step-icon">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>
-        </div>
-        <p class="step-title">Deliver</p>
-        <p class="step-tool">email_notify.py</p>
-        <p class="step-desc">Full summary, rendered to HTML, sent over SMTP.</p>
+        <p class="step-tool">Claude Opus 5 · schema</p>
+        <p class="step-desc">Returns structured JSON. Markdown is rendered from it, so tickers can't be lost to a formatting slip.</p>
       </div>
 
       <div class="connector">
@@ -489,33 +604,60 @@
       </div>
 
       <div class="stage-card is-new">
-        <div class="step-top"><span class="step-num">05</span><span class="new-chip">NEW</span></div>
+        <div class="step-top"><span class="step-num">04</span><span class="new-chip">NEW</span></div>
         <div class="step-icon">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 7-7"/><path d="M14 8h6v6"/></svg>
+        </div>
+        <p class="step-title">Buy / Add / Exit</p>
+        <p class="step-tool">position_intent</p>
+        <p class="step-desc">What he's about to do, not just what he did — with the price level or catalyst that triggers it.</p>
+      </div>
+
+      <div class="connector">
+        <svg width="20" height="12" viewBox="0 0 20 12" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 6h16M13 1l5 5-5 5"/></svg>
+      </div>
+
+      <div class="stage-card">
+        <div class="step-top"><span class="step-num">05</span></div>
+        <div class="step-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>
+        </div>
+        <p class="step-title">Deliver</p>
+        <p class="step-tool">deliver.py</p>
+        <p class="step-desc">Subject names the show — “Zoom Summary” or “X Space Summary”.</p>
+      </div>
+
+      <div class="connector">
+        <svg width="20" height="12" viewBox="0 0 20 12" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 6h16M13 1l5 5-5 5"/></svg>
+      </div>
+
+      <div class="stage-card">
+        <div class="step-top"><span class="step-num">06</span></div>
+        <div class="step-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M10 21h4"/></svg>
         </div>
         <p class="step-title">Alert</p>
         <p class="step-tool">ticker_alerts.py</p>
-        <p class="step-desc">Checks tickers against <span style="white-space:nowrap">watchlist.txt</span> — fires a priority ping on a match.</p>
+        <p class="step-desc">Separate priority email when a watchlist ticker comes up.</p>
       </div>
 
       <div class="connector">
         <svg width="20" height="12" viewBox="0 0 20 12" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 6h16M13 1l5 5-5 5"/></svg>
       </div>
 
-      <div class="stage-card is-new">
-        <div class="step-top"><span class="step-num">06</span><span class="new-chip">NEW</span></div>
+      <div class="stage-card">
+        <div class="step-top"><span class="step-num">07</span></div>
         <div class="step-icon">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5.5" rx="8" ry="3"/><path d="M4 5.5V12c0 1.7 3.6 3 8 3s8-1.3 8-3V5.5"/><path d="M4 12v6.5c0 1.7 3.6 3 8 3s8-1.3 8-3V12"/></svg>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><ellipse cx="12" cy="5.5" rx="8" ry="3"/><path d="M4 5.5V12c0 1.7 3.6 3 8 3s8-1.3 8-3V5.5"/><path d="M4 12v6.5c0 1.7 3.6 3 8 3s8-1.3 8-3V12"/></svg>
         </div>
         <p class="step-title">Archive</p>
         <p class="step-tool">notion_sync.py</p>
-        <p class="step-desc">Pushes the summary into Notion as a searchable, filterable page.</p>
+        <p class="step-desc">One row per episode, tickers as a multi-select.</p>
       </div>
 
     </div>
 
     <div class="outputs-row">
-      <div class="output-slot"></div>
       <div class="output-slot"></div>
       <div class="output-slot"></div>
       <div class="output-slot">
@@ -544,9 +686,9 @@
   </div>
 
   <div class="legend">
-    <div class="legend-item"><span class="legend-swatch" style="background:var(--accent)"></span> shipped in v1.0</div>
-    <div class="legend-item"><span class="legend-swatch" style="background:var(--accent-2)"></span> new in v2.0 — ticker alerts &amp; Notion sync</div>
-    <div class="legend-item"><span class="legend-swatch" style="background:transparent;border:1.5px dashed var(--border-strong)"></span> automated by check_and_run.py, on a schedule</div>
+    <div class="legend-item"><span class="legend-swatch" style="background:var(--accent)"></span> shipped in v1.0–v2.0</div>
+    <div class="legend-item"><span class="legend-swatch" style="background:var(--accent-2)"></span> new in v2.1 — Zoom source, GPU transcription, structured summaries</div>
+    <div class="legend-item"><span class="legend-swatch" style="background:transparent;border:1.5px dashed var(--border-strong)"></span> automated — scheduled run or watched folder</div>
   </div>
 
 </div>
