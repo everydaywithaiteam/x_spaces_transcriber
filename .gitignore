@@ -11,4 +11,8 @@ __pycache__/
 .claude/
 
 # YouTube planning / upload docs — internal, not part of the project
-yt_*.md
+# Widened from yt_*.md to catch archives and exports alongside the docs.
+yt_*
+
+# Screenshots captured for video production, not project assets
+blured zoom links.jpg
