@@ -17,6 +17,7 @@ Options:
     --cookies-from-browser BROWSER  Browser for cookies: chrome/firefox/safari
     --cookies-file FILE   Netscape cookies.txt for x.com (preferred — see README).
                           Defaults to ./cookies.txt or $COOKIES_FILE if present.
+    --keep-audio         Keep the downloaded audio (default: delete after transcribing)
     --skip-if-exists     Skip if today's output already exists
 
 Environment:
@@ -32,11 +33,13 @@ Or with launchd on macOS — see README for setup.
 """
 
 import argparse
+import fcntl
 import os
 import sys
 import json
 import re
 import shutil
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -158,6 +161,81 @@ def save_run_record(output_dir: Path, space_id: str, meta: dict):
     record_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
 
+# Extensions step_download can produce. Kept in one place so the cleanup sweep
+# and the "already downloaded" check below can never drift apart.
+AUDIO_EXTS = (".m4a", ".mp3", ".aac", ".opus", ".webm", ".mp4", ".wav")
+
+
+def discard_audio(audio_path: Path, transcript_path: Path, keep: bool = False) -> int:
+    """Delete the downloaded audio once its transcript exists. Returns bytes freed.
+
+    A Space is 60-100 MB of m4a that is never read again: step_transcribe skips
+    when the .txt is already there, and check_and_run skips the episode outright
+    once it lands in state. Keeping the audio cost 2.9 GB before this existed.
+
+    The transcript check is the safety interlock — without a non-empty .txt on
+    disk the audio is still the only copy of the episode, so it stays. Failures
+    here are logged and swallowed: losing a cleanup must never fail a run that
+    already produced a summary.
+    """
+    if keep:
+        return 0
+    try:
+        if not audio_path or not Path(audio_path).exists():
+            return 0
+        if not transcript_path or not Path(transcript_path).exists():
+            log(f"Keeping {Path(audio_path).name} — no transcript to replace it")
+            return 0
+        if Path(transcript_path).stat().st_size == 0:
+            log(f"Keeping {Path(audio_path).name} — transcript is empty")
+            return 0
+        size = Path(audio_path).stat().st_size
+        Path(audio_path).unlink()
+        log(f"Removed {Path(audio_path).name} ({size / 1e6:.0f} MB) — transcript kept")
+        return size
+    except Exception as e:
+        log(f"Could not remove {audio_path}: {e}")
+        return 0
+
+
+@contextmanager
+def state_lock(output_dir: Path, label: str = "run"):
+    """Serialize the runners that share output/state.json.
+
+    check_and_run.py and zoom_ingest.py both read-modify-write the same state
+    file. That was safe while Zoom ingest was manual, but both now run on
+    5-minute launchd timers and a Playwright fetch plus a Claude summarization
+    comfortably outlasts the interval. Two overlapping runs would read the same
+    state, write it back independently, and silently drop whichever entry lost
+    the race — surfacing later as a duplicate email or a re-summarized episode.
+
+    Non-blocking on purpose: if another run holds the lock there is nothing
+    useful to wait for, the next timer tick will pick the work up.
+    """
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = output_dir / "state.lock"
+    handle = open(lock_path, "w")
+    try:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            log(f"Another run holds {lock_path.name} — skipping this {label}")
+            yield False
+            return
+        try:
+            handle.write(str(os.getpid()))
+            handle.flush()
+        except Exception:
+            pass
+        try:
+            yield True
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+    finally:
+        handle.close()
+
+
 # ── Pipeline steps ────────────────────────────────────────────────────────────
 
 def step_download(url: str, output_dir: Path, file_stem: str, cookies_from_browser: str = None,
@@ -165,7 +243,7 @@ def step_download(url: str, output_dir: Path, file_stem: str, cookies_from_brows
     import yt_dlp
 
     candidates = list(output_dir.glob(f"{file_stem}.*"))
-    existing = [f for f in candidates if f.suffix in (".m4a", ".mp3", ".aac", ".opus", ".webm", ".mp4")]
+    existing = [f for f in candidates if f.suffix in AUDIO_EXTS]
     if existing:
         log(f"Audio already exists: {existing[0]} — skipping download")
         return existing[0]
@@ -573,6 +651,9 @@ def main():
                         default=_default_cookies_file if Path(_default_cookies_file).exists() else None,
                         help="Netscape-format cookies.txt for x.com (preferred over --cookies-from-browser; "
                              "see README). Defaults to ./cookies.txt or $COOKIES_FILE if present.")
+    parser.add_argument("--keep-audio", action="store_true",
+                        help="Keep the downloaded audio after transcription (default: "
+                             "delete it — a Space is 60-100 MB and nothing reads it again)")
     parser.add_argument("--skip-if-exists", action="store_true",
                         help="Skip entire run if today's summary already exists")
     args = parser.parse_args()
@@ -617,6 +698,9 @@ def main():
         log(f"Summarizing with Claude (focus: @{speaker})...")
         summary_path = step_summarize(transcript_path, output_dir, file_stem, speaker, args.url, args.claude_model)
 
+        # Step 4: Drop the audio — the transcript supersedes it.
+        discard_audio(audio_path, transcript_path, keep=args.keep_audio)
+
         save_run_record(output_dir, space_id, {
             "url": args.url,
             "account": args.account,
@@ -629,7 +713,8 @@ def main():
 
         log("=" * 60)
         log("✓ Pipeline complete!")
-        log(f"  Audio:      {audio_path}")
+        if audio_path.exists():
+            log(f"  Audio:      {audio_path}")
         log(f"  Transcript: {transcript_path}")
         log(f"  Summary:    {summary_path}")
 
