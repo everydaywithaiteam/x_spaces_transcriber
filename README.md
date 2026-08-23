@@ -51,7 +51,7 @@ Delivery itself lives in [deliver.py](deliver.py) and is shared by both runners,
 ## Pipeline
 
 ```text
-  SOURCE A -- check_and_run.py (scheduled)          SOURCE B -- zoom_ingest.py (watched folder)
+  SOURCE A -- check_and_run.py (scheduled)          SOURCE B -- zoom_queue.py / zoom_ingest.py
   +------------------+   +------------------+       +------------------+   +------------------+
   |   1. Download    |-->|  2. Transcribe   |       |    1. Parse      |-->|  2. (no ASR)     |
   |      yt-dlp      |   | mlx-whisper GPU  |       |  vtt_ingest.py   |   |  already text    |
@@ -73,7 +73,7 @@ Delivery itself lives in [deliver.py](deliver.py) and is shared by both runners,
   NEW = shipped in v2.1 (Zoom .vtt source, GPU transcription, structured summaries)
 ```
 
-A polished, interactive (light/dark) version of this same diagram is at [pipeline_diagram.html](pipeline_diagram.html).
+A presentation version of this same diagram is at [pipeline_diagram.html](pipeline_diagram.html). Every `*_diagram.html` in the repo root renders to a 16:9 PNG with `python3 render_diagrams.py`.
 
 ## Setup
 
@@ -129,9 +129,9 @@ After each Space is summarized, its "Stocks & Tickers Mentioned" section is chec
 
 Zoom cloud recordings publish an **Audio Transcript** (`.vtt`) alongside the video. `zoom_ingest.py` summarizes an episode straight from that file, which skips the two most expensive stages of the pipeline entirely — there is no multi-GB video to download and no Whisper pass to run — and the transcript arrives with **speaker names already attached**, so Claude works from real attribution instead of inferring who the host is.
 
-Why the transcript rather than the recording: [vtt_vs_download_diagram.html](vtt_vs_download_diagram.html) — and if you're wondering why yt-dlp can't simply download a passcode-protected Zoom recording, [zoom_failure_diagram.html](zoom_failure_diagram.html) walks through where it breaks.
+Why the transcript rather than the recording: [vtt_vs_download_diagram.html](vtt_vs_download_diagram.html).
 
-1. Download an episode's `.vtt` from its Zoom recording page.
+1. Download an episode's `.vtt` from its Zoom recording page — or let `zoom_queue.py` fetch it for you (below).
 2. Drop it into `transcripts_in/` (created on first run).
 3. Run it:
 
@@ -139,7 +139,7 @@ Why the transcript rather than the recording: [vtt_vs_download_diagram.html](vtt
 python zoom_ingest.py
 ```
 
-Each file becomes `output/zoom-<date>-<title>.txt` (a merged, speaker-labelled transcript) and `output/zoom-<date>-<title>_summary.md`, then flows through the same email → watchlist alert → Notion delivery as a Space. Processed `.vtt` files move to `transcripts_in/processed/`; pass `--keep` to leave them where they are.
+Each file becomes `output/zoom-<date>-<title>.txt` (a merged, speaker-labelled transcript) and `output/zoom-<date>-<title>_summary.md`, then flows through the same email → watchlist alert → Notion delivery as a Space. Processed `.vtt` files are **deleted** once the transcript exists in `output/`; pass `--keep` to hold on to them.
 
 The episode date comes from a `YYYY-MM-DD` (or `YYYYMMDD`) in the filename when present, otherwise the file's modification time — so both Zoom's own `GMT20260731-140233_Recording.transcript.vtt` and a hand-renamed `2026-08-07 Episode 36.vtt` work, as does a browser's `… (1).vtt` repeat download (which resolves to the same episode, so it can't be processed twice). Zoom's own names produce a title of just "Recording"; rename the file if you want the episode number in the summary. The focus speaker defaults to whoever has the most airtime, which for a hosted show is the host; override with `--speaker "Name"`.
 
@@ -151,6 +151,42 @@ python vtt_ingest.py <file.vtt> --speakers         # speaking-time breakdown, no
 ```
 
 Because the transcript is machine-generated, ticker symbols are sometimes mis-transcribed ("in video" for NVDA). The summary prompt used for labelled transcripts tells Claude to correct those where context makes the intended ticker unambiguous, and to flag rather than guess where it doesn't. `transcripts_in/` is gitignored — it holds third-party show content.
+
+### Fetching Zoom recordings automatically
+
+Step 1 above is the only manual part, and `zoom_queue.py` removes it. Paste a share link and its passcode into `zoom_calls_input.txt`:
+
+```
+https://us06web.zoom.us/rec/share/<share-token>?startTime=<epoch-ms>
+Passcode: <passcode here>
+```
+
+then run `python zoom_queue.py` — or let the launchd agent below do it. Each new entry is downloaded, summarized and emailed without further input. The file is append-only: handled links are recorded in `output/state.json` under `zoom_queue`, so old entries are skipped rather than re-processed, and passcodes are never copied into state. `zoom_calls_input.txt` is gitignored; see `zoom_calls_input.txt.example`.
+
+**Why this needs a browser.** yt-dlp cannot download a passcode-protected Zoom recording, and neither can a hand-rolled HTTP client — [zoom_solved_diagram.html](zoom_solved_diagram.html) shows where `--video-password` breaks and what replaced it. Walking the flow manually stops at `share-info` returning `{"componentName": "need-password"}`, and getting past it means reproducing a `meetingId` that **rotates at every hop** plus an OWASP CSRFGuard token minted by a separate `POST /csrf_js`. The `/rec/validate_meet_passwd` endpoint every guide still posts is dead — it answered "This API has been deprecated" when this was first investigated and now just returns a 500. That plumbing is exactly what rotted yt-dlp's extractor, so [zoom_fetch.py](zoom_fetch.py) drives the real page with Playwright instead: Zoom's own JavaScript handles the tokens, cookies and redirects, and we only type the passcode and read `/rec/play/vtt?fid=…&type=transcript`.
+
+Downloads are validated with the same parser the summarizer uses, so a Zoom error page served as HTTP 200 fails fast instead of landing in the inbox as a broken transcript. A failure that isn't worth retrying (wrong passcode) emails you once, and saves the page and a screenshot to `logs/zoom_fail_*.html` / `.png` — Zoom's markup will change eventually, and that dump is what makes the breakage diagnosable. Transient failures retry on the next run, up to three attempts.
+
+```bash
+python zoom_queue.py --dry-run     # list pending entries, download nothing
+python zoom_queue.py --headful     # watch the browser drive the passcode page
+python zoom_fetch.py <url> <pass>  # fetch one transcript, nothing else
+```
+
+### Disk use
+
+The pipeline keeps a summary (~16 KB) and a transcript (~150 KB) per episode. It used to also keep the downloaded audio — 60–100 MB per Space, never read again once transcribed — which reached 2.9 GB before anything deleted it.
+
+Audio is now discarded as soon as its transcript exists (`--keep-audio` on `check_and_run.py` or `pipeline.py` opts out), and processed `.vtt` files are deleted rather than archived. To sweep up what accumulated earlier:
+
+```bash
+python cleanup_output.py           # dry run — show what would go
+python cleanup_output.py --apply   # delete it
+```
+
+Audio with no transcript beside it is reported and left alone: without the `.txt` it is still the only copy of that episode.
+
+What the sweep reclaimed on this machine is in [disk_cleanup_diagram.html](disk_cleanup_diagram.html).
 
 ### Notion sync (optional)
 
@@ -221,15 +257,27 @@ Discovers the recent Spaces visible on the account's profile, skips any already 
 0 9 * * * cd /path/to/x_spaces_transcriber && python check_and_run.py >> logs/pipeline.log 2>&1
 ```
 
+### Running on a timer via launchd (macOS)
+
+Two agents run every five minutes: `com.stocksonspaces.checkrun` for X Spaces and `com.stocksonspaces.zoomqueue` for the Zoom link queue.
+
+```bash
+launchctl load -w ~/Library/LaunchAgents/com.stocksonspaces.zoomqueue.plist
+```
+
+Both plists set `PATH` explicitly — launchd otherwise supplies only `/usr/bin:/bin:/usr/sbin:/sbin`, which omits Homebrew and hides ffmpeg from yt-dlp.
+
+Because both write `output/state.json`, and a Playwright fetch plus a Claude summarization easily outlasts the five-minute interval, they serialize on `output/state.lock` (`state_lock()` in [pipeline.py](pipeline.py)). Whichever gets there second logs that it skipped the cycle and picks the work up on its next tick. Without that they would eventually read the same state, write it back independently, and silently drop an entry — surfacing later as a duplicate email or a re-summarized episode.
+
 ## Output
 
 ```
 output/
-  <space_id>.m4a           # downloaded audio
-  <space_id>.txt           # full transcript
+  <space_id>.txt           # full transcript (audio is deleted once this exists)
   <space_id>_summary.md    # speaker summary
   <space_id>_run.json      # metadata (duration, model, tokens, etc.)
-  state.json               # tracks processed Space IDs and per-space delivery/sync status
+  state.json               # processed Space/episode IDs, delivery status, and the Zoom link queue
+  state.lock               # flock target shared by the two scheduled runners
 ```
 
 `state.json` schema:

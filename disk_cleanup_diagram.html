@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Two inputs, zero manual steps — X Spaces Transcriber</title>
+<title>The 2.9 GB nobody deleted — X Spaces Transcriber</title>
 <style>
     :root {
       --ink:#20252b; --muted:#68717b; --paper:#f7f8fa; --card:#fff; --line:#cbd2d8;
@@ -103,30 +103,13 @@
     .stat .big .arw{color:var(--line); margin:0 5px}
     .stat p{margin:6px 0 0; color:var(--muted); font-size:13px; line-height:1.3}
 
-    .pipe{display:grid; grid-template-columns:1.02fr .3fr 1fr .3fr 1.32fr; align-items:center}
-    .inputs{display:grid; gap:16px}
-    .in-card{padding:20px 22px; position:relative; overflow:hidden}
-    .in-card::before{content:""; position:absolute; inset:0 auto 0 0; width:8px; background:var(--blue)}
-    .in-card.zoom::before{background:var(--teal)}
-    .in-head{display:flex; justify-content:space-between; align-items:center; gap:10px}
-    .in-card h2{margin:8px 0 5px; font-size:clamp(21px,2vw,31px); letter-spacing:-.035em}
-    .in-card p{margin:0; color:var(--muted); font-size:clamp(14px,1.15vw,17px)}
-    .in-card .mono{margin-top:12px; display:block}
-    .hand{padding:26px 22px; text-align:center; border:2px solid var(--orange);
-      background:linear-gradient(145deg,#fff,var(--orange-soft)); border-radius:20px;
-      box-shadow:var(--shadow)}
-    .hand .label{color:var(--orange)}
-    .hand h2{margin:10px 0 7px; font-size:clamp(23px,2.2vw,34px); letter-spacing:-.04em}
-    .hand p{margin:0; color:var(--muted); font-size:clamp(14px,1.15vw,17px); line-height:1.35}
-    .shared{display:grid; gap:10px}
-    .sh{padding:15px 18px; display:grid; grid-template-columns:auto 1fr; gap:14px; align-items:center}
-    .sh.primary{border:2px solid var(--blue); background:var(--blue-soft)}
-    .sh h2{margin:0 0 2px; font-size:clamp(18px,1.6vw,25px); letter-spacing:-.03em}
-    .sh p{margin:0; color:var(--muted); font-size:clamp(13px,1.05vw,15px)}
-    .ico{width:38px; height:38px; display:grid; place-items:center; border-radius:11px;
-      background:#fff; font-size:19px; font-weight:800; color:var(--blue)}
-    .sh:nth-child(2) .ico{color:var(--orange)} .sh:nth-child(3) .ico{color:var(--teal)}
-    .sh:nth-child(4) .ico{color:var(--violet)}
+    .split{display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:24px}
+    .blob{border-radius:20px; padding:26px 28px; text-align:center}
+    .blob.before{background:var(--red-soft); border:1px solid #f0cdc8}
+    .blob.after{background:var(--teal-soft); border:2px solid var(--teal)}
+    .blob .num{font-size:clamp(46px,5.4vw,84px); font-weight:780; letter-spacing:-.05em; line-height:1}
+    .blob.before .num{color:var(--red)} .blob.after .num{color:var(--teal)}
+    .blob p{margin:9px 0 0; color:var(--muted); font-size:clamp(14px,1.2vw,17px)}
 </style>
 </head>
 <body>
@@ -134,48 +117,29 @@
     <header>
       <div>
         <p class="kicker">X Spaces Transcriber — build log</p>
-        <h1>Two inputs.<br>Zero manual steps.</h1>
+        <h1>2.9 GB of it was audio<br>I'd already transcribed.</h1>
       </div>
-      <p class="dek">A Space URL or a Zoom link. Everything after that is the same code.</p>
+      <p class="dek">There was no <span style="font-family:ui-monospace,Menlo,monospace">unlink</span> anywhere in the codebase. Nothing had ever been deleted.</p>
     </header>
     <section class="stage">
-      <div class="pipe">
-        <div class="inputs">
-          <article class="card in-card">
-            <div class="in-head"><span class="label">Source 01</span></div>
-            <h2>X Space</h2>
-            <p>Found, downloaded, transcribed</p>
-            <span class="mono">check_and_run.py · every 5 min</span>
-          </article>
-          <div class="arrow-d"></div>
-          <article class="card in-card zoom">
-            <div class="in-head"><span class="label">Source 02</span><span class="pill new">now automatic</span></div>
-            <h2>Zoom link</h2>
-            <p>Passcode typed by a browser</p>
-            <span class="mono">zoom_queue.py · every 5 min</span>
-          </article>
-        </div>
-        <div class="arrow-r"></div>
-        <article class="hand">
-          <span class="label">The handoff</span>
-          <h2>Common transcript</h2>
-          <p>Both paths land on the same text file. Audio is deleted here.</p>
-        </article>
-        <div class="arrow-r"></div>
-        <div class="shared">
-          <article class="card sh primary"><div class="ico">✦</div>
-            <div><h2>Summarize</h2><p>Takeaways · tickers · position intent</p></div></article>
-          <article class="card sh"><div class="ico">↗</div>
-            <div><h2>Deliver</h2><p>One summary in your inbox</p></div></article>
-          <article class="card sh"><div class="ico">!</div>
-            <div><h2>Alert</h2><p>Ping when a watchlist ticker appears</p></div></article>
-          <article class="card sh"><div class="ico">▤</div>
-            <div><h2>Archive</h2><p>Episode record in Notion</p></div></article>
-        </div>
+      <div class="split">
+        <div class="blob before"><span class="label">Before</span>
+          <div class="num">2.9 GB</div><p>output/ — 30 × .m4a and one stray .wav</p></div>
+        <div class="arrow-r" style="width:70px"></div>
+        <div class="blob after"><span class="label">After</span>
+          <div class="num">7.7 MB</div><p>output/ — 35 summaries, 36 transcripts</p></div>
+      </div>
+      <div class="stats">
+        <div class="stat"><span class="label">What it was</span>
+          <div class="big">99.7%</div><p>of the folder was audio already turned into text.</p></div>
+        <div class="stat"><span class="label">The interlock</span>
+          <div class="big">.txt or keep</div><p>Audio is deleted only when a non-empty transcript sits beside it.</p></div>
+        <div class="stat"><span class="label">Left alone</span>
+          <div class="big">1 file</div><p>No transcript, so it is still the only copy. Reported, not removed.</p></div>
       </div>
     </section>
     <footer>
-      <p class="takeaway">Normalize early. Reuse everything after.</p>
+      <p class="takeaway">Not deleting is a decision. It just never gets made on purpose.</p>
       <p class="note">v2.1 · github.com/everydaywithaiteam/x_spaces_transcriber</p>
     </footer>
   </main>

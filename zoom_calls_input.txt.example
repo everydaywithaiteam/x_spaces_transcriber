@@ -1,0 +1,14 @@
+# Zoom recordings to ingest — paste a share link and its passcode, then let
+# zoom_queue.py do the rest. Copy this to zoom_calls_input.txt (gitignored,
+# because passcodes live here).
+#
+# One entry is a URL line followed by its Passcode line. Blank lines between
+# entries are optional. Append new ones at the bottom and never prune the file:
+# every link that has been handled is recorded in output/state.json, so old
+# entries are skipped rather than re-processed.
+#
+# "#" only starts a comment at the start of a line — passcodes often contain
+# #, $ and ?, and those are taken verbatim.
+
+https://us06web.zoom.us/rec/share/<share-token>.<suffix>?startTime=<epoch-ms>
+Passcode: <passcode here>

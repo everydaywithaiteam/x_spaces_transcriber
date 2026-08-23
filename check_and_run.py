@@ -46,6 +46,7 @@ from pipeline import (
     fetch_recent_space_urls, extract_space_id, make_file_stem,
     fetch_space_recorded_date,
     step_download, step_transcribe, step_summarize, save_run_record, log,
+    discard_audio, state_lock,
 )
 from ticker_alerts import alerts_enabled, match_watchlist, tickers_for_summary
 from deliver import deliver_pending
@@ -170,6 +171,10 @@ def main():
                              "Runs on the GPU via mlx-whisper when available.")
     parser.add_argument("--claude-model", default="claude-opus-5",
                         help="Claude model for summarization (default: claude-opus-5)")
+    parser.add_argument("--keep-audio", action="store_true",
+                        help="Keep the downloaded .m4a after transcription "
+                             "(default: delete it — a Space is 60-100 MB and is "
+                             "never read again once the transcript exists)")
     _default_cookies_file = os.environ.get("COOKIES_FILE") or str(BASE_DIR / "cookies.txt")
     parser.add_argument("--cookies-file", metavar="FILE",
                         default=_default_cookies_file if Path(_default_cookies_file).exists() else None,
@@ -178,6 +183,14 @@ def main():
                              "$COOKIES_FILE if present.")
     args = parser.parse_args()
 
+    with state_lock(OUTPUT_DIR, "catch-up run") as acquired:
+        if not acquired:
+            return
+        run(args)
+
+
+def run(args):
+    """The actual catch-up pass, holding the shared state lock."""
     speaker = args.speaker or args.account
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -231,6 +244,10 @@ def main():
             transcript_path = step_transcribe(audio_path, OUTPUT_DIR, file_stem, args.model)
             summary_path = step_summarize(transcript_path, OUTPUT_DIR, file_stem,
                                            speaker, url, args.claude_model)
+
+            # The m4a has done its job once the transcript exists, and a Space
+            # is 60-100 MB of it. Nothing downstream reads audio again.
+            discard_audio(audio_path, transcript_path, keep=args.keep_audio)
 
             save_run_record(OUTPUT_DIR, space_id, {
                 "url": url, "account": args.account, "speaker": speaker,

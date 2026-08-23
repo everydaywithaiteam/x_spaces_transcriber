@@ -8,10 +8,13 @@ the X Spaces pipeline — there is no multi-GB download and no Whisper pass — 
 the transcript arrives with speaker names already attached, so the summarizer
 works from real attribution instead of inferring who the host is.
 
-Drop .vtt files into transcripts_in/ and run. Everything downstream (summary
-email, watchlist alerts, Notion sync) is the same machinery the Spaces pipeline
-uses, driven off the same output/state.json, so a failed send retries on the
-next run without re-summarizing.
+Drop .vtt files into transcripts_in/ and run — or let zoom_queue.py fetch them
+from a share link for you. Everything downstream (summary email, watchlist
+alerts, Notion sync) is the same machinery the Spaces pipeline uses, driven off
+the same output/state.json, so a failed send retries on the next run without
+re-summarizing.
+
+Processed .vtt files are deleted; output/<stem>.txt is the copy that is kept.
 
 Episode date is taken from a YYYY-MM-DD in the filename when present, otherwise
 the file's modification time. Anything else in the filename becomes the title.
@@ -19,13 +22,13 @@ the file's modification time. Anything else in the filename becomes the title.
 Usage:
     python zoom_ingest.py [--dry-run] [--speaker NAME] [--show NAME]
                           [--indir DIR] [--claude-model MODEL] [--keep]
+                          [--no-deliver]
 """
 
 import argparse
 import json
 import os
 import re
-import shutil
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -42,7 +45,6 @@ BASE_DIR    = Path(__file__).parent
 OUTPUT_DIR  = BASE_DIR / "output"
 STATE_FILE  = OUTPUT_DIR / "state.json"
 INBOX_DIR   = BASE_DIR / "transcripts_in"
-DONE_DIR    = INBOX_DIR / "processed"
 
 sys.path.insert(0, str(BASE_DIR))
 from pipeline import log, save_run_record
@@ -119,12 +121,33 @@ def pick_speaker(cues: list) -> str:
     return stats[0][0] if stats else None
 
 
+def discard_vtt(vtt_path: Path, keep: bool = False):
+    """Delete a .vtt once its summary exists.
+
+    These used to be moved to transcripts_in/processed/ and kept forever. The
+    rendered transcript in output/ is the copy anything downstream reads, and
+    the .vtt is third-party show content we have no reason to hoard, so the
+    archive was pure accumulation. --keep opts out.
+    """
+    if keep:
+        return
+    try:
+        vtt_path.unlink()
+        log(f"Removed {vtt_path.name}")
+    except OSError as e:
+        log(f"Could not remove {vtt_path.name}: {e}")
+
+
 def process(vtt_path: Path, args, state: dict) -> bool:
     meta = episode_meta(vtt_path)
     episode_id, file_stem = meta["episode_id"], meta["file_stem"]
 
     if episode_id in state["processed"]:
-        log(f"Already processed: {meta['title']} — skipping")
+        # The old code returned here before the archive step, so a re-downloaded
+        # copy of an episode sat in the inbox being re-examined on every run.
+        # It is redundant by definition — the summary already exists.
+        log(f"Already processed: {meta['title']} — discarding duplicate")
+        discard_vtt(vtt_path, args.keep)
         return False
 
     cues = parse_cues(vtt_path.read_text(encoding="utf-8", errors="replace"))
@@ -205,9 +228,7 @@ def process(vtt_path: Path, args, state: dict) -> bool:
         save_state(state)
         log(f"✓ Processed {meta['title']}")
 
-        if not args.keep:
-            DONE_DIR.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(vtt_path), str(DONE_DIR / vtt_path.name))
+        discard_vtt(vtt_path, args.keep)
         return True
 
     except Exception as e:
@@ -229,7 +250,9 @@ def main():
     parser.add_argument("--no-deliver", action="store_true",
                         help="Summarize only — skip email, watchlist alerts, and Notion sync. "
                              "Useful for backfilling a batch without flooding your inbox.")
-    parser.add_argument("--keep", action="store_true", help="Leave .vtt files in place after processing")
+    parser.add_argument("--keep", action="store_true",
+                        help="Keep .vtt files after processing (default: delete them — "
+                             "the rendered transcript in output/ is the copy that matters)")
     args = parser.parse_args()
 
     indir = Path(args.indir)
@@ -238,7 +261,7 @@ def main():
         log(f"Created {indir} — drop Zoom .vtt transcripts there and re-run.")
         return
 
-    # DONE_DIR lives inside the inbox, so exclude it from the scan.
+    # Keep the scan flat — an old transcripts_in/processed/ may still exist.
     vtt_files = sorted(p for p in indir.glob("*.vtt") if p.parent == indir)
     if not vtt_files:
         log(f"No .vtt files in {indir}")
