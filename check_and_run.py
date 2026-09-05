@@ -225,7 +225,10 @@ def run(args):
 
     for url in to_process:
         space_id = extract_space_id(url)
-        file_stem = make_file_stem(url, args.account)
+        # Before the stem, not after: the stem is derived from this date, and
+        # is also how step_download/step_transcribe find work they already did.
+        recorded_date = fetch_space_recorded_date(url, "chrome", args.cookies_file)
+        file_stem = make_file_stem(url, args.account, recorded_date)
         if claimed_stems.get(file_stem, space_id) != space_id:
             file_stem = f"{file_stem}-{space_id}"
         claimed_stems[file_stem] = space_id
@@ -235,11 +238,9 @@ def run(args):
             continue
 
         log(f"Processing {space_id} ({file_stem})...")
+        if recorded_date:
+            log(f"  recorded {recorded_date}")
         try:
-            recorded_date = fetch_space_recorded_date(url, "chrome", args.cookies_file)
-            if recorded_date:
-                log(f"  recorded {recorded_date}")
-
             audio_path = step_download(url, OUTPUT_DIR, file_stem, "chrome", args.cookies_file)
             transcript_path = step_transcribe(audio_path, OUTPUT_DIR, file_stem, args.model)
             summary_path = step_summarize(transcript_path, OUTPUT_DIR, file_stem,

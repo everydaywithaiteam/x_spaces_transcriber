@@ -479,7 +479,16 @@ def summarize(transcript_path: Path, speaker: str = None, space_url: str = None,
         output_path = transcript_path.with_name(transcript_path.stem + "_summary.md")
 
     print(f"Sending to Claude ({model}{', structured' if structured else ''})...")
-    client = anthropic.Anthropic(api_key=api_key)
+    # Bounded on purpose. Left at the SDK defaults, one summarization sat on
+    # this call for four hours before failing with "Request timed out or
+    # interrupted" — and it held the state lock for every minute of it. An
+    # explicit per-attempt timeout caps the worst case at
+    # SUMMARIZE_TIMEOUT * (SUMMARIZE_RETRIES + 1) instead.
+    client = anthropic.Anthropic(
+        api_key=api_key,
+        timeout=float(os.environ.get("SUMMARIZE_TIMEOUT", 600)),
+        max_retries=int(os.environ.get("SUMMARIZE_RETRIES", 3)),
+    )
     request = {
         "model": model,
         # Generous: a long episode's structured summary plus JSON overhead. The

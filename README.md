@@ -269,6 +269,24 @@ Both plists set `PATH` explicitly — launchd otherwise supplies only `/usr/bin:
 
 Because both write `output/state.json`, and a Playwright fetch plus a Claude summarization easily outlasts the five-minute interval, they serialize on `output/state.lock` (`state_lock()` in [pipeline.py](pipeline.py)). Whichever gets there second logs that it skipped the cycle and picks the work up on its next tick. Without that they would eventually read the same state, write it back independently, and silently drop an entry — surfacing later as a duplicate email or a re-summarized episode.
 
+### When a run wedges
+
+Three guards exist because all three failed at once on 2026-09-02, and the
+pipeline sat dead for 31 hours:
+
+* **The lock names its owner.** `state.lock` holds the PID of the run that
+  owns it. It is opened `a+`, never `w` — truncating before `flock` meant the
+  run that *failed* to acquire erased the holder's PID, leaving an empty file
+  and no way to tell which process to kill.
+* **Downloads are killed when they stop progressing**, not when they run long
+  (`DOWNLOAD_STALL_SECONDS`, default 20 min). A Space whose m3u8 is still
+  `type=live` makes ffmpeg poll a playlist that never ends; a slow-but-healthy
+  download must not be punished for it.
+* **Summarization is bounded** by `SUMMARIZE_TIMEOUT` × (`SUMMARIZE_RETRIES` + 1),
+  ~40 min by default. Unbounded, one call hung for four hours holding the lock.
+
+Regression tests for all three: `python3 -m unittest discover -s tests -v`.
+
 ## Output
 
 ```
@@ -278,6 +296,7 @@ output/
   <space_id>_run.json      # metadata (duration, model, tokens, etc.)
   state.json               # processed Space/episode IDs, delivery status, and the Zoom link queue
   state.lock               # flock target shared by the two scheduled runners
+                           # (holds the owning PID while held)
 ```
 
 `state.json` schema:
