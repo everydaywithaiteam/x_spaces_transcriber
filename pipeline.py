@@ -35,10 +35,14 @@ Or with launchd on macOS — see README for setup.
 import argparse
 import fcntl
 import os
+import signal
+import subprocess
 import sys
 import json
 import re
 import shutil
+import threading
+import time
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -110,10 +114,18 @@ def extract_space_name(url: str) -> Optional[str]:
     return None
 
 
-def make_file_stem(url: str, account: str) -> str:
-    """Return <space_name>-<YYYY-MM-DD> for use as output filename base."""
+def make_file_stem(url: str, account: str, recorded_date: str = None) -> str:
+    """Return <space_name>-<YYYY-MM-DD> for use as output filename base.
+
+    `recorded_date` is when the Space was broadcast; today's date is only a
+    fallback for when that lookup failed. Naming by the processing date is
+    wrong the moment a run is late — a catch-up filed a 09-02 Space under
+    09-03, and because the stem is also the reuse key for the audio and
+    transcript, each retry landed on a fresh name and redid a 3-hour
+    transcription it already had on disk.
+    """
     name = extract_space_name(url) or account.lower()
-    date = datetime.now().strftime("%Y-%m-%d")
+    date = recorded_date or datetime.now().strftime("%Y-%m-%d")
     return f"{name}-{date}"
 
 
@@ -215,15 +227,28 @@ def state_lock(output_dir: Path, label: str = "run"):
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     lock_path = output_dir / "state.lock"
-    handle = open(lock_path, "w")
+    # "a+", never "w": open(..., "w") truncates *before* flock, so the run that
+    # FAILS to acquire erases the holder's PID. A 31-hour hang once left an
+    # empty lock file and no way to tell from disk which process to look at.
+    handle = open(lock_path, "a+")
     try:
         try:
             fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
-            log(f"Another run holds {lock_path.name} — skipping this {label}")
+            holder = ""
+            try:
+                handle.seek(0)
+                holder = handle.read().strip()
+            except Exception:
+                pass
+            owner = f" (held by PID {holder})" if holder else ""
+            log(f"Another run holds {lock_path.name}{owner} — skipping this {label}")
             yield False
             return
+        # Only now that the lock is ours is it safe to rewrite the file.
         try:
+            handle.seek(0)
+            handle.truncate()
             handle.write(str(os.getpid()))
             handle.flush()
         except Exception:
@@ -234,6 +259,85 @@ def state_lock(output_dir: Path, label: str = "run"):
             fcntl.flock(handle, fcntl.LOCK_UN)
     finally:
         handle.close()
+
+
+# ── Download stall watchdog ───────────────────────────────────────────────────
+
+# A Space whose m3u8 is still `type=live` makes ffmpeg poll a playlist that
+# never ends. One did exactly that: it wrote 11 MB, then sat with the
+# connection open — and the state lock held — for 31 hours, freezing both
+# scheduled runners until it was killed by hand.
+#
+# A wall-clock cap is the wrong instrument: a legitimate Space once took
+# 2h19m at 10.8 KiB/s, and that download was healthy. What separates "slow"
+# from "wedged" is whether bytes are still landing on disk, so that is what
+# this watches.
+DOWNLOAD_STALL_SECONDS = int(os.environ.get("DOWNLOAD_STALL_SECONDS", 20 * 60))
+
+
+def _download_bytes(output_dir: Path, file_stem: str) -> int:
+    """Bytes on disk for this download so far, including the .part file."""
+    total = 0
+    for f in Path(output_dir).glob(f"{file_stem}.*"):
+        try:
+            total += f.stat().st_size
+        except OSError:
+            pass
+    return total
+
+
+def _kill_child_processes():
+    """SIGKILL this process's direct children — i.e. yt-dlp's ffmpeg.
+
+    Killing the child is what actually unblocks things: yt-dlp is sitting in
+    wait(), so once ffmpeg dies the wait returns and the error propagates
+    normally as a failed download instead of hanging forever.
+    """
+    try:
+        found = subprocess.run(["pgrep", "-P", str(os.getpid())],
+                               capture_output=True, text=True, timeout=10)
+    except Exception:
+        return []
+    killed = []
+    for pid in found.stdout.split():
+        try:
+            os.kill(int(pid), signal.SIGKILL)
+            killed.append(int(pid))
+        except (ProcessLookupError, ValueError, PermissionError):
+            pass
+    return killed
+
+
+@contextmanager
+def stall_watchdog(output_dir: Path, file_stem: str,
+                   stall_seconds: int = None, poll_seconds: int = 30):
+    """Kill the downloader if it stops writing bytes for `stall_seconds`."""
+    stall_seconds = DOWNLOAD_STALL_SECONDS if stall_seconds is None else stall_seconds
+    stop = threading.Event()
+    fired = {"stalled": False}
+
+    def watch():
+        last_size = _download_bytes(output_dir, file_stem)
+        last_change = time.monotonic()
+        while not stop.wait(poll_seconds):
+            size = _download_bytes(output_dir, file_stem)
+            if size != last_size:
+                last_size, last_change = size, time.monotonic()
+                continue
+            if time.monotonic() - last_change >= stall_seconds:
+                fired["stalled"] = True
+                log(f"Download stalled at {size} bytes for "
+                    f"{stall_seconds // 60} min — killing the downloader")
+                _kill_child_processes()
+                return
+
+    thread = threading.Thread(target=watch, daemon=True, name="stall-watchdog")
+    thread.start()
+    try:
+        yield fired
+    finally:
+        stop.set()
+        thread.join(timeout=5)
 
 
 # ── Pipeline steps ────────────────────────────────────────────────────────────
@@ -261,15 +365,23 @@ def step_download(url: str, output_dir: Path, file_stem: str, cookies_from_brows
         "quiet": True,
         # Explicit, so the download does not depend on the inherited PATH.
         "ffmpeg_location": FFMPEG_DIR,
+        # Bounds yt-dlp's own HTTP reads. It does NOT bound the ffmpeg
+        # subprocess that pulls an m3u8 — stall_watchdog below covers that.
+        "socket_timeout": 60,
     }
     if cookies_file:
         ydl_opts["cookiefile"] = cookies_file
     elif cookies_from_browser:
         ydl_opts["cookiesfrombrowser"] = (cookies_from_browser,)
 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)
-        ext = info.get("ext", "m4a")
+    with stall_watchdog(output_dir, file_stem) as watch:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            ext = info.get("ext", "m4a")
+    if watch["stalled"]:
+        raise RuntimeError(
+            f"Download stalled for {DOWNLOAD_STALL_SECONDS // 60} min and was "
+            f"killed — the Space's m3u8 is most likely still type=live")
 
     audio_path = output_dir / f"{file_stem}.{ext}"
     log(f"Downloaded: {audio_path}")
