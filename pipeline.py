@@ -129,6 +129,100 @@ def make_file_stem(url: str, account: str, recorded_date: str = None) -> str:
     return f"{name}-{date}"
 
 
+# ── Live vs. replay ───────────────────────────────────────────────────────────
+
+# yt-dlp maps a Space's `state` onto exactly four statuses:
+#
+#   is_upcoming  scheduled, not started
+#   is_live      running RIGHT NOW
+#   post_live    ended, replay not published yet
+#   was_live     ended, full replay available  ← the only one worth downloading
+#
+# Downloading a running Space does not fail, and that is what made this
+# expensive. yt-dlp attaches to the live edge and follows the rolling playlist
+# in real time, so what lands on disk is whatever it managed to catch rather
+# than the Space: on 2026-09-08/09/10 that was 5.9%, 15.8% and 3.8% of three
+# ~2.5-hour Spaces, each transcript opening mid-sentence. Every other signal —
+# exit status, run record, the email itself — said "success", so three days of
+# summaries went out built on a fraction of the conversation.
+#
+# The replay is also strictly cheaper: an ended Space pulls a finite playlist
+# at ~870 KiB/s in two or three minutes, where following one live costs two
+# hours of wall clock to capture less.
+SPACE_READY = "was_live"
+
+SPACE_STATUS_REASON = {
+    "is_upcoming": "has not started yet",
+    "is_live": "is still live — only the replay is downloadable in full",
+    "post_live": "has ended but its replay is not published yet",
+}
+
+
+class SpaceNotReady(RuntimeError):
+    """The Space cannot be downloaded in full yet. Try again on a later run.
+
+    Distinct from a failed download: nothing is wrong, the Space simply is not
+    finished. Callers must NOT record it as processed, or the pipeline will
+    skip the replay forever once it appears.
+    """
+
+
+def fetch_space_meta(url: str, cookies_from_browser: str = None,
+                     cookies_file: str = None) -> dict:
+    """Metadata-only probe: when the Space aired, and whether it has ended.
+
+    Returns {"recorded_date": YYYY-MM-DD or None, "live_status": str or None}.
+    One yt-dlp call answers both, so gating on live status costs no extra
+    round-trip over the date lookup the catch-up loop already did.
+
+    Never raises — an unreachable Space must fail only itself, not the whole
+    catch-up run. `live_status` is None when the probe failed or yt-dlp did not
+    report one; callers treat that as "unknown" and fall through to the
+    download, which will surface the real error.
+    """
+    import yt_dlp
+
+    ydl_opts = {"quiet": True, "skip_download": True}
+    if cookies_file:
+        ydl_opts["cookiefile"] = cookies_file
+    elif cookies_from_browser:
+        ydl_opts["cookiesfrombrowser"] = (cookies_from_browser,)
+
+    meta = {"recorded_date": None, "live_status": None}
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+    except Exception as e:
+        log(f"Could not fetch metadata for {url}: {e}")
+        return meta
+
+    meta["live_status"] = info.get("live_status")
+
+    ts = info.get("release_timestamp") or info.get("timestamp")
+    if ts:
+        meta["recorded_date"] = datetime.fromtimestamp(ts).strftime("%Y-%m-%d")
+    else:
+        # Date-only fallbacks, already YYYYMMDD strings
+        for key in ("release_date", "upload_date"):
+            raw = info.get(key)
+            if raw and len(raw) == 8:
+                meta["recorded_date"] = f"{raw[0:4]}-{raw[4:6]}-{raw[6:8]}"
+                break
+    return meta
+
+
+def space_not_ready_reason(live_status: Optional[str]) -> Optional[str]:
+    """Why this Space must not be downloaded yet, or None if it is ready.
+
+    Unknown status (None) is deliberately treated as ready: a metadata blip
+    should not stall an ended Space indefinitely, and the download itself
+    fails loudly if the Space really is unavailable.
+    """
+    if live_status is None or live_status == SPACE_READY:
+        return None
+    return SPACE_STATUS_REASON.get(live_status, f"is not ready (state: {live_status})")
+
+
 def fetch_space_recorded_date(url: str, cookies_from_browser: str = None,
                                cookies_file: str = None) -> Optional[str]:
     """Return the date the Space was actually broadcast, as YYYY-MM-DD (local time).
@@ -140,29 +234,10 @@ def fetch_space_recorded_date(url: str, cookies_from_browser: str = None,
 
     Returns None if metadata can't be fetched, so callers can fall back to the
     processing date.
+
+    Thin wrapper over fetch_space_meta() for callers that only need the date.
     """
-    import yt_dlp
-
-    ydl_opts = {"quiet": True, "skip_download": True}
-    if cookies_file:
-        ydl_opts["cookiefile"] = cookies_file
-    elif cookies_from_browser:
-        ydl_opts["cookiesfrombrowser"] = (cookies_from_browser,)
-
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-        ts = info.get("release_timestamp") or info.get("timestamp")
-        if ts:
-            return datetime.fromtimestamp(ts).strftime("%Y-%m-%d")
-        # Date-only fallbacks, already YYYYMMDD strings
-        for key in ("release_date", "upload_date"):
-            raw = info.get(key)
-            if raw and len(raw) == 8:
-                return f"{raw[0:4]}-{raw[4:6]}-{raw[6:8]}"
-    except Exception as e:
-        log(f"Could not fetch recording date for {url}: {e}")
-    return None
+    return fetch_space_meta(url, cookies_from_browser, cookies_file)["recorded_date"]
 
 
 def save_run_record(output_dir: Path, space_id: str, meta: dict):
@@ -343,7 +418,7 @@ def stall_watchdog(output_dir: Path, file_stem: str,
 # ── Pipeline steps ────────────────────────────────────────────────────────────
 
 def step_download(url: str, output_dir: Path, file_stem: str, cookies_from_browser: str = None,
-                   cookies_file: str = None) -> Path:
+                   cookies_file: str = None, live_status: str = "unchecked") -> Path:
     import yt_dlp
 
     candidates = list(output_dir.glob(f"{file_stem}.*"))
@@ -351,6 +426,15 @@ def step_download(url: str, output_dir: Path, file_stem: str, cookies_from_brows
     if existing:
         log(f"Audio already exists: {existing[0]} — skipping download")
         return existing[0]
+
+    # Never follow a Space that is still running: that captures the tail, not
+    # the Space. Callers that already probed pass their live_status through;
+    # the sentinel means nobody checked, so check here rather than trust it.
+    if live_status == "unchecked":
+        live_status = fetch_space_meta(url, cookies_from_browser, cookies_file)["live_status"]
+    not_ready = space_not_ready_reason(live_status)
+    if not_ready:
+        raise SpaceNotReady(f"Space {not_ready} — deferring until the replay is available")
 
     if not FFMPEG_DIR:
         raise RuntimeError(
@@ -517,9 +601,20 @@ def _find_spaces_via_twitter_api(account: str) -> list:
     data, _ = _get("/spaces/by/creator_ids",
                    {"user_ids": user_id, "space.fields": "state,created_at"})
     if data and data.get("data"):
+        # This endpoint returns live AND scheduled Spaces, which is why it asks
+        # for `state`: a Space that has not ended has no replay to download, and
+        # queueing one means capturing its tail in real time. Step 3 picks it up
+        # once it ends.
+        skipped = 0
         for space in data["data"]:
+            if (space.get("state") or "").lower() != "ended":
+                skipped += 1
+                continue
             urls.append(f"https://x.com/i/spaces/{space['id']}")
-        log(f"Found {len(urls)} live/scheduled Space(s) via Twitter API")
+        if skipped:
+            log(f"Twitter API: skipped {skipped} live/scheduled Space(s) — not ended yet")
+        if urls:
+            log(f"Found {len(urls)} ended Space(s) via Twitter API")
 
     # Step 3: search for recently ended Spaces
     data, _ = _get("/spaces/search", {
@@ -789,8 +884,21 @@ def main():
         sys.exit(0)
 
     space_id = extract_space_id(args.url)
-    file_stem = make_file_stem(args.url, args.account)
+
+    # Resolve the broadcast date BEFORE the stem. The stem is derived from it,
+    # and is also how step_download/step_transcribe find work they already did.
+    # Passing no date at all made make_file_stem fall back to *today*, so this
+    # CLI named every Space after the day it was run: re-processing the 09-08
+    # Space on 09-10 filed it as `stocksonspaces-2026-09-10` and overwrote that
+    # day's transcript and summary. check_and_run.py fixed this in its own loop;
+    # the single-Space entry point kept the bug.
+    meta = fetch_space_meta(args.url, args.cookies_from_browser, args.cookies_file)
+    file_stem = make_file_stem(args.url, args.account, meta["recorded_date"])
     log(f"Space ID: {space_id} | File stem: {file_stem}")
+    if meta["recorded_date"]:
+        log(f"  recorded {meta['recorded_date']}")
+    else:
+        log("  broadcast date unknown — falling back to today's date for the stem")
 
     # Skip if today's run already completed
     if args.skip_if_exists:
@@ -801,7 +909,8 @@ def main():
 
     try:
         # Step 1: Download
-        audio_path = step_download(args.url, output_dir, file_stem, args.cookies_from_browser, args.cookies_file)
+        audio_path = step_download(args.url, output_dir, file_stem, args.cookies_from_browser,
+                                   args.cookies_file, live_status=meta["live_status"])
 
         # Step 2: Transcribe
         transcript_path = step_transcribe(audio_path, output_dir, file_stem, args.model)
@@ -829,6 +938,12 @@ def main():
             log(f"  Audio:      {audio_path}")
         log(f"  Transcript: {transcript_path}")
         log(f"  Summary:    {summary_path}")
+
+    except SpaceNotReady as e:
+        # Not a failure — exit 0 with no run record so a retry is clean.
+        log(f"Not ready: {e}")
+        log("Re-run once the Space has ended and its replay is published.")
+        sys.exit(0)
 
     except Exception as e:
         log(f"ERROR: Pipeline failed — {e}")

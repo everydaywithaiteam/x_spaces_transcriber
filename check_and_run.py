@@ -44,7 +44,8 @@ LOG_DIR    = BASE_DIR / "logs"
 sys.path.insert(0, str(BASE_DIR))
 from pipeline import (
     fetch_recent_space_urls, extract_space_id, make_file_stem,
-    fetch_space_recorded_date,
+    fetch_space_recorded_date, fetch_space_meta, space_not_ready_reason,
+    SpaceNotReady,
     step_download, step_transcribe, step_summarize, save_run_record, log,
     discard_audio, state_lock,
 )
@@ -223,11 +224,28 @@ def run(args):
     # the first space's audio/transcript/summary files.
     claimed_stems = {entry["file_stem"]: sid for sid, entry in state["processed"].items()}
 
+    deferred = 0
     for url in to_process:
         space_id = extract_space_id(url)
-        # Before the stem, not after: the stem is derived from this date, and
-        # is also how step_download/step_transcribe find work they already did.
-        recorded_date = fetch_space_recorded_date(url, "chrome", args.cookies_file)
+        # One probe answers both questions. Before the stem, not after: the stem
+        # is derived from this date, and is also how step_download/step_transcribe
+        # find work they already did.
+        meta = fetch_space_meta(url, "chrome", args.cookies_file)
+        recorded_date = meta["recorded_date"]
+
+        # A Space that is still live has no replay yet, and following the live
+        # edge captures only its tail. Leave it alone — the next scheduled run
+        # picks up the replay, usually within half an hour of it ending.
+        #
+        # Critically, it must NOT go into state["processed"]: that is the only
+        # record of what has been handled, so marking a live Space done would
+        # make the pipeline skip the full replay forever.
+        not_ready = space_not_ready_reason(meta["live_status"])
+        if not_ready:
+            deferred += 1
+            log(f"Deferring {space_id}: {not_ready}")
+            continue
+
         file_stem = make_file_stem(url, args.account, recorded_date)
         if claimed_stems.get(file_stem, space_id) != space_id:
             file_stem = f"{file_stem}-{space_id}"
@@ -241,7 +259,8 @@ def run(args):
         if recorded_date:
             log(f"  recorded {recorded_date}")
         try:
-            audio_path = step_download(url, OUTPUT_DIR, file_stem, "chrome", args.cookies_file)
+            audio_path = step_download(url, OUTPUT_DIR, file_stem, "chrome", args.cookies_file,
+                                       live_status=meta["live_status"])
             transcript_path = step_transcribe(audio_path, OUTPUT_DIR, file_stem, args.model)
             summary_path = step_summarize(transcript_path, OUTPUT_DIR, file_stem,
                                            speaker, url, args.claude_model)
@@ -281,10 +300,19 @@ def run(args):
             }
             save_state(state)
             log(f"✓ Processed {space_id}")
+        except SpaceNotReady as e:
+            # Not a failure: nothing is wrong, the Space just is not finished.
+            # No run record and no state entry, so the next run retries it.
+            deferred += 1
+            log(f"Deferring {space_id}: {e}")
+            continue
         except Exception as e:
             log(f"ERROR processing {space_id}: {e}")
             save_run_record(OUTPUT_DIR, space_id, {"url": url, "status": "failed", "error": str(e)})
             continue
+
+    if deferred:
+        log(f"{deferred} Space(s) deferred until their replay is published")
 
     if not args.dry_run and not args.no_deliver:
         deliver_pending(state, save_state, log)
