@@ -48,6 +48,9 @@ from zoom_fetch import fetch_vtt, share_token, ZoomFetchError, ZoomPasscodeRejec
 from email_notify import send_email
 
 MAX_ATTEMPTS = 3
+# Summarizing is retried on later runs too. A failure there is usually a
+# one-off (an oversized reply, an API blip) that the next run gets past.
+MAX_INGEST_ATTEMPTS = 3
 
 
 def now_iso() -> str:
@@ -132,6 +135,62 @@ def notify_failure(entry: dict, record: dict):
     if send_email(subject, plain, html):
         record["notified"] = True
         log("Failure email sent")
+
+
+def notify_ingest_failure(record: dict):
+    """Email once when a downloaded transcript still will not summarize."""
+    if record.get("ingest_notified"):
+        return
+    url = record["url"]
+    vtt = record.get("vtt_path")
+    attempts = record.get("ingest_attempts", 0)
+    subject = f"Zoom summary failed — {datetime.now().strftime('%Y-%m-%d')}"
+    plain = (f"The transcript for:\n\n{url}\n\nwas downloaded but could not be "
+             f"summarized after {attempts} attempt(s).\n\n"
+             f"It is still at {vtt}. See logs/zoomqueue.log or output/*_run.json for "
+             f"the error, then run python3 zoom_ingest.py to retry it.")
+    html = (f"<p>The transcript for:</p><p><a href=\"{url}\">{url}</a></p>"
+            f"<p>was downloaded but could not be summarized after {attempts} attempt(s).</p>"
+            f"<p>It is still at <code>{vtt}</code>. See <code>logs/zoomqueue.log</code> or "
+            f"<code>output/*_run.json</code> for the error, then run "
+            f"<code>python3 zoom_ingest.py</code> to retry it.</p>")
+    if send_email(subject, plain, html):
+        record["ingest_notified"] = True
+        log("Summary failure email sent")
+
+
+def awaiting_ingest(state: dict) -> list:
+    """Queue records whose .vtt is downloaded but not yet summarized.
+
+    zoom_ingest deletes a .vtt once it has been summarized, so one still on disk
+    means the last ingest failed. The download itself is "success", so without
+    this check nothing would ever look at it again.
+    """
+    return [k for k, r in state["zoom_queue"].items()
+            if r.get("status") == "success" and r.get("vtt_path")
+            and Path(r["vtt_path"]).exists()]
+
+
+def record_ingest_outcome(keys: list):
+    """After an ingest run, count a failed attempt for each .vtt still on disk.
+
+    State is reloaded first: zoom_ingest wrote its own results to state.json in
+    a subprocess, and saving the copy held here would overwrite them.
+    """
+    state = load_state()
+    for key in keys:
+        record = state["zoom_queue"].get(key)
+        if not record or not record.get("vtt_path") or not Path(record["vtt_path"]).exists():
+            continue
+        record["ingest_attempts"] = record.get("ingest_attempts", 0) + 1
+        if record["ingest_attempts"] >= MAX_INGEST_ATTEMPTS:
+            log(f"ERROR: {Path(record['vtt_path']).name} failed to summarize "
+                f"{record['ingest_attempts']} times — giving up until retried by hand")
+            notify_ingest_failure(record)
+        else:
+            log(f"Summary attempt {record['ingest_attempts']}/{MAX_INGEST_ATTEMPTS} "
+                f"failed for {Path(record['vtt_path']).name} — will retry next run")
+    save_state(state)
 
 
 def run_ingest(no_deliver: bool) -> bool:
@@ -222,18 +281,32 @@ def main():
         pending = [e for e in entries
                    if state["zoom_queue"].get(share_token(e["url"]), {}).get("status")
                    not in ("success", "failed")]
-        if not pending:
+        if pending:
+            log(f"{len(pending)} new entr{'y' if len(pending) == 1 else 'ies'} in {path.name}")
+            for e in pending:
+                process_entry(e, state, args)
+            save_state(state)
+
+        # Includes what was just downloaded and anything an earlier ingest left
+        # behind, so a failed summary is retried instead of stranded.
+        retryable = [k for k in awaiting_ingest(state)
+                     if state["zoom_queue"][k].get("ingest_attempts", 0) < MAX_INGEST_ATTEMPTS]
+
+        if not pending and not retryable:
             log(f"{len(entries)} entr{'y' if len(entries) == 1 else 'ies'} in {path.name}, all already handled")
             return
-
-        log(f"{len(pending)} new entr{'y' if len(pending) == 1 else 'ies'} in {path.name}")
-        downloaded = sum(process_entry(e, state, args) for e in pending)
-        save_state(state)
-
-        if downloaded:
-            run_ingest(args.no_deliver)
-        elif not args.dry_run:
+        if args.dry_run:
+            if retryable:
+                log(f"[DRY RUN] would run zoom_ingest for {len(retryable)} waiting transcript(s)")
+            return
+        if not retryable:
             log("Nothing downloaded — not running zoom_ingest")
+            return
+
+        if not pending:
+            log(f"Retrying summary for {len(retryable)} transcript(s) left by an earlier run")
+        run_ingest(args.no_deliver)
+        record_ingest_outcome(retryable)
 
 
 if __name__ == "__main__":

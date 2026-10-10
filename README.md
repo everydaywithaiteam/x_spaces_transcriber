@@ -6,7 +6,7 @@ Automatically downloads X (Twitter) Spaces, transcribes them with Whisper, and g
 
 1. **Detects** recent Spaces from a given X account (via Twitter API v2, Playwright, or yt-dlp)
 2. **Downloads** the Space audio with yt-dlp
-3. **Transcribes** audio with Whisper `large-v3`, on the GPU via mlx-whisper (see below)
+3. **Transcribes** audio with Whisper (`turbo` for scheduled runs, `large-v3` for one-off runs), on the GPU via mlx-whisper (see below)
 4. **Summarizes** the target speaker's contributions using Claude (Anthropic API)
 5. **Emails** each summary as a formatted HTML message
 6. **Alerts** you separately if a ticker on your watchlist gets mentioned (opt-in, off by default)
@@ -23,6 +23,8 @@ The default is now `large-v3`. `--model` accepts `tiny`, `base`, `small`, `mediu
 ```bash
 python check_and_run.py --model turbo
 ```
+
+The scheduled runner, `check_and_run.py`, defaults to `turbo`; `pipeline.py` still defaults to `large-v3`. Once replays were downloaded in full rather than captured live (a 2-hour Space is roughly 100–150 MB, 3,000–4,700 segments), `large-v3` took anywhere from 15 minutes to 3.5 hours per Space and kept the GPU and fans pinned the whole time. Before that fix, runs transcribed only a few minutes of live audio, which is why the load seemed to appear suddenly. Pass `--model large-v3` to go back.
 
 Model weights download from Hugging Face on first use and are cached — `large-v3` is roughly 3 GB, `turbo` about half that. On a machine without mlx-whisper (any non-Apple-Silicon host), the pipeline automatically falls back to faster-whisper on CPU, so nothing breaks; it just runs the way it used to.
 
@@ -165,7 +167,7 @@ then run `python zoom_queue.py` — or let the launchd agent below do it. Each n
 
 **Why this needs a browser.** yt-dlp cannot download a passcode-protected Zoom recording, and neither can a hand-rolled HTTP client — [zoom_solved_diagram.html](zoom_solved_diagram.html) shows where `--video-password` breaks and what replaced it. Walking the flow manually stops at `share-info` returning `{"componentName": "need-password"}`, and getting past it means reproducing a `meetingId` that **rotates at every hop** plus an OWASP CSRFGuard token minted by a separate `POST /csrf_js`. The `/rec/validate_meet_passwd` endpoint every guide still posts is dead — it answered "This API has been deprecated" when this was first investigated and now just returns a 500. That plumbing is exactly what rotted yt-dlp's extractor, so [zoom_fetch.py](zoom_fetch.py) drives the real page with Playwright instead: Zoom's own JavaScript handles the tokens, cookies and redirects, and we only type the passcode and read `/rec/play/vtt?fid=…&type=transcript`.
 
-Downloads are validated with the same parser the summarizer uses, so a Zoom error page served as HTTP 200 fails fast instead of landing in the inbox as a broken transcript. A failure that isn't worth retrying (wrong passcode) emails you once, and saves the page and a screenshot to `logs/zoom_fail_*.html` / `.png` — Zoom's markup will change eventually, and that dump is what makes the breakage diagnosable. Transient failures retry on the next run, up to three attempts.
+Downloads are validated with the same parser the summarizer uses, so a Zoom error page served as HTTP 200 fails fast instead of landing in the inbox as a broken transcript. A failure that isn't worth retrying (wrong passcode) emails you once, and saves the page and a screenshot to `logs/zoom_fail_*.html` / `.png` — Zoom's markup will change eventually, and that dump is what makes the breakage diagnosable. Transient failures retry on the next run, up to three attempts. Summarizing is retried the same way: a downloaded `.vtt` still sitting in `transcripts_in/` means its last ingest failed, so the next run hands it to `zoom_ingest.py` again, up to three attempts, then emails you once.
 
 ```bash
 python zoom_queue.py --dry-run     # list pending entries, download nothing
