@@ -6,7 +6,7 @@ Automatically downloads X (Twitter) Spaces, transcribes them with Whisper, and g
 
 1. **Detects** recent Spaces from a given X account (via Twitter API v2, Playwright, or yt-dlp)
 2. **Downloads** the Space audio with yt-dlp
-3. **Transcribes** audio with Whisper `large-v3`, on the GPU via mlx-whisper (see below)
+3. **Transcribes** audio with Whisper (`turbo` for scheduled runs, `large-v3` for one-off runs), on the GPU via mlx-whisper (see below)
 4. **Summarizes** the target speaker's contributions using Claude (Anthropic API)
 5. **Emails** each summary as a formatted HTML message
 6. **Alerts** you separately if a ticker on your watchlist gets mentioned (opt-in, off by default)
@@ -23,6 +23,8 @@ The default is now `large-v3`. `--model` accepts `tiny`, `base`, `small`, `mediu
 ```bash
 python check_and_run.py --model turbo
 ```
+
+The scheduled runner, `check_and_run.py`, defaults to `turbo`; `pipeline.py` still defaults to `large-v3`. Once replays were downloaded in full rather than captured live (a 2-hour Space is roughly 100–150 MB, 3,000–4,700 segments), `large-v3` took anywhere from 15 minutes to 3.5 hours per Space and kept the GPU and fans pinned the whole time. Before that fix, runs transcribed only a few minutes of live audio, which is why the load seemed to appear suddenly. Pass `--model large-v3` to go back.
 
 Model weights download from Hugging Face on first use and are cached — `large-v3` is roughly 3 GB, `turbo` about half that. On a machine without mlx-whisper (any non-Apple-Silicon host), the pipeline automatically falls back to faster-whisper on CPU, so nothing breaks; it just runs the way it used to.
 

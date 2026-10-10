@@ -166,9 +166,9 @@ def main():
                              "Pending sends stay queued for a later run.")
     parser.add_argument("--account", default="StocksOnSpaces", help="Twitter account handle to watch")
     parser.add_argument("--speaker", default=None, help="Speaker handle for summary focus (default: same as --account)")
-    parser.add_argument("--model", default="large-v3",
+    parser.add_argument("--model", default="turbo",
                         help="Whisper model: tiny, base, small, medium, large, large-v3, "
-                             "turbo, or a full Hugging Face repo path (default: large-v3). "
+                             "turbo, or a full Hugging Face repo path (default: turbo). "
                              "Runs on the GPU via mlx-whisper when available.")
     parser.add_argument("--claude-model", default="claude-opus-5",
                         help="Claude model for summarization (default: claude-opus-5)")
