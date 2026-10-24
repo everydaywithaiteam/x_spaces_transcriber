@@ -45,16 +45,66 @@ sys.path.insert(0, str(BASE_DIR))
 from pipeline import (
     fetch_recent_space_urls, extract_space_id, make_file_stem,
     fetch_space_recorded_date, fetch_space_meta, space_not_ready_reason,
-    SpaceNotReady,
+    SpaceNotReady, XSessionBlocked,
     step_download, step_transcribe, step_summarize, save_run_record, log,
     discard_audio, state_lock,
 )
 from ticker_alerts import alerts_enabled, match_watchlist, tickers_for_summary
 from deliver import deliver_pending
+from email_notify import send_email
+
+# A lone challenge can clear by itself on the next run; three in a row
+# (~15 min on the launchd timer) means a human has to step in.
+BLOCKED_RUNS_BEFORE_EMAIL = 3
 
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def notify_blocked(record: dict):
+    """Email once when X keeps blocking discovery.
+
+    Without this a blocked session looks exactly like a quiet week: every run
+    logs "0 new Spaces" and no summary ever arrives. Gated on `notified` so it
+    cannot mail you every five minutes; cleared when discovery works again.
+    """
+    if record.get("notified") or record.get("runs", 0) < BLOCKED_RUNS_BEFORE_EMAIL:
+        return
+    reason = record.get("reason", "unknown")
+    since = record.get("since", "")
+    subject = f"X Spaces discovery blocked — {datetime.now().strftime('%Y-%m-%d')}"
+    steps = ("1. Log in to x.com in Chrome and clear any account check it shows.\n"
+             "2. Re-export cookies.txt for x.com into the project root (see README, "
+             "'Space discovery: cookies.txt').\n"
+             "The next scheduled run picks it up; no restart needed.")
+    plain = (f"No new Spaces can be found because X is blocking the scraper's session.\n\n"
+             f"Reason: {reason}\nBlocked since: {since}\n\n{steps}")
+    html = (f"<p>No new Spaces can be found because X is blocking the scraper's session.</p>"
+            f"<p><b>Reason:</b> {reason}<br><b>Blocked since:</b> {since}</p>"
+            f"<p>{steps.replace(chr(10), '<br>')}</p>")
+    if send_email(subject, plain, html):
+        record["notified"] = True
+        log("Blocked-session email sent")
+
+
+def discover(args, state: dict) -> list:
+    """Recent Space URLs, tracking a blocked X session in state["x_blocked"]."""
+    try:
+        urls = fetch_recent_space_urls(args.account, cookies_from_browser="chrome",
+                                       cookies_file=args.cookies_file)
+    except XSessionBlocked as e:
+        record = state.setdefault("x_blocked", {"since": now_iso(), "runs": 0, "notified": False})
+        record["runs"] += 1
+        record["reason"] = str(e)
+        log(f"Discovery BLOCKED ({record['runs']} run(s) in a row since {record['since']}): {e}")
+        if not args.dry_run:
+            notify_blocked(record)
+        return []
+
+    if state.pop("x_blocked", None):
+        log("Discovery working again — cleared the blocked-session flag")
+    return urls
 
 
 def _inert_feature_fields() -> dict:
@@ -208,7 +258,7 @@ def run(args):
 
     if not args.dry_run:
         backfill_recorded_dates(state, "chrome", args.cookies_file)
-    urls = fetch_recent_space_urls(args.account, cookies_from_browser="chrome", cookies_file=args.cookies_file)
+    urls = discover(args, state)
     log(f"Discovered {len(urls)} recent Space(s) on the profile")
 
     new_urls = [u for u in urls if extract_space_id(u) not in state["processed"]]
