@@ -167,6 +167,33 @@ class SpaceNotReady(RuntimeError):
     """
 
 
+class XSessionBlocked(RuntimeError):
+    """X answered the profile with an account check, login page or bot challenge.
+
+    Distinct from "no recent Spaces": the profile was never seen, so an empty
+    result would be a lie. Raised so the scheduled runner can tell you instead
+    of quietly reporting zero Spaces every five minutes.
+    """
+
+
+# Text Cloudflare puts on its interstitial; X serves it in front of
+# /account/access when it wants a human to prove themselves.
+_CHALLENGE_MARKERS = ("Performing security verification", "Verify you are human")
+
+
+def x_block_reason(page_url: str, body_text: str = "") -> Optional[str]:
+    """Why the page in front of us is not the profile we asked for, or None."""
+    import urllib.parse
+    path = urllib.parse.urlparse(page_url).path
+    if path.startswith("/account/access"):
+        return "X redirected the session to /account/access (account check)"
+    if path.startswith("/i/flow/login") or path in ("/login", "/i/flow/logout"):
+        return "X redirected to the login page (cookies.txt session is logged out)"
+    if any(m in body_text for m in _CHALLENGE_MARKERS):
+        return "X served a Cloudflare 'verify you are human' challenge"
+    return None
+
+
 def fetch_space_meta(url: str, cookies_from_browser: str = None,
                      cookies_file: str = None) -> dict:
     """Metadata-only probe: when the Space aired, and whether it has ended.
@@ -750,7 +777,21 @@ def _find_spaces_via_playwright(account: str, cookies_file: str = None) -> list:
                 log(f"Found {len(urls)} Space(s) via Playwright: {urls}")
                 return urls
 
+            # No Space calls can mean an empty timeline, or that X never showed
+            # us the timeline at all. Only the second one is worth an alarm.
+            try:
+                body_text = page.inner_text("body", timeout=2000)
+            except Exception:
+                body_text = ""
+            reason = x_block_reason(page.url, body_text)
+            if reason:
+                log(f"Playwright: BLOCKED — {reason}. Log in to x.com in a browser, clear the check, "
+                    "and re-export cookies.txt (see README).")
+                raise XSessionBlocked(reason)
+
             log(f"Playwright: no AudioSpaceById calls fired for @{account} — no recent Spaces in timeline")
+        except XSessionBlocked:
+            raise
         except PWTimeout:
             log("Playwright: page timed out")
         except Exception as e:
@@ -808,18 +849,29 @@ def fetch_recent_space_urls(account: str, cookies_from_browser: str = None, cook
          Chrome cookie decryption
       3. yt-dlp /spaces tab scrape — works when cookies_file or
          --cookies-from-browser is set
+
+    Raises XSessionBlocked when X put a check or challenge in front of the
+    profile and no other method found anything.
     """
     urls = _find_spaces_via_twitter_api(account)
     if urls:
         return urls
 
-    urls = _find_spaces_via_playwright(account, cookies_file)
+    blocked = None
+    try:
+        urls = _find_spaces_via_playwright(account, cookies_file)
+    except XSessionBlocked as e:
+        blocked, urls = e, []
     if urls:
         return urls
 
     urls = _find_spaces_via_ydlp(account, cookies_from_browser, cookies_file)
     if urls:
         return urls
+
+    # yt-dlp got nothing either, so the block is the real answer — not "no Spaces".
+    if blocked:
+        raise blocked
 
     log("Auto-detection could not find any Space URLs.")
     log("  → Ensure you are logged in to x.com (a cookies.txt export is more reliable than live Chrome — see README)")
