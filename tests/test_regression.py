@@ -601,3 +601,19 @@ class CliStemUsesRecordedDateTests(unittest.TestCase):
         call = call[:call.index(")") + 1]
         self.assertIn("recorded_date", call,
                       "make_file_stem falls back to today's date, overwriting another day")
+
+
+# ── 2026-11-02: X moved to 14-character Space IDs ────────────────────────────
+
+class SpaceIdLengthTests(unittest.TestCase):
+    def test_yt_dlp_keeps_full_14_char_space_id(self):
+        try:
+            from yt_dlp.extractor.twitter import TwitterSpacesIE
+        except ImportError:
+            self.skipTest("yt-dlp not installed")
+        for sid in ("1nQYegamYpgOqk", "1AKEmmXeBvaKL"):
+            self.assertEqual(
+                TwitterSpacesIE._match_id(f"https://x.com/i/spaces/{sid}"), sid)
+
+    def test_patch_is_idempotent(self):
+        self.assertFalse(pipeline.patch_yt_dlp_space_ids())

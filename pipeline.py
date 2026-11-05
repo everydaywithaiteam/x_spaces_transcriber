@@ -92,6 +92,39 @@ def ensure_ffmpeg_on_path() -> Optional[str]:
 
 FFMPEG_DIR = ensure_ffmpeg_on_path()
 
+
+# yt-dlp's Spaces extractor matches exactly 13 ID characters. Since 2026-11-02
+# X has been issuing 14-character Space IDs (1nQYegamYpgOqk), so yt-dlp
+# silently matched a truncated ID, asked X for a Space that doesn't exist and
+# died with KeyError('metadata') — every new Space failed to download. The
+# fix isn't released for this machine's Python 3.9 (2025.10.14 is the last
+# yt-dlp that supports it), so widen the pattern here, for every entry point.
+_SPACE_ID_13 = r"i/spaces/(?P<id>[0-9a-zA-Z]{13})"
+_SPACE_ID_ANY = r"i/spaces/(?P<id>[0-9a-zA-Z]{13,})"
+
+
+def patch_yt_dlp_space_ids() -> bool:
+    """Let yt-dlp accept Space IDs longer than 13 characters.
+
+    Returns True if the pattern was widened, False if yt-dlp is missing or
+    already accepts longer IDs (a newer release fixed it upstream).
+    """
+    try:
+        from yt_dlp.extractor import twitter
+    except ImportError:
+        return False
+    ie = twitter.TwitterSpacesIE
+    if _SPACE_ID_13 not in ie._VALID_URL:
+        return False
+    ie._VALID_URL = ie._VALID_URL.replace(_SPACE_ID_13, _SPACE_ID_ANY)
+    # yt-dlp caches the compiled regex on first use; drop it so ours is used.
+    if "_VALID_URL_RE" in ie.__dict__:
+        delattr(ie, "_VALID_URL_RE")
+    return True
+
+
+patch_yt_dlp_space_ids()
+
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 def log(msg: str):
