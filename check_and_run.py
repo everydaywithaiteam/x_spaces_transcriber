@@ -24,6 +24,7 @@ decrypt sensitive session cookies on newer Chrome versions — see README.
 
 import json
 import os
+from html import escape
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -56,6 +57,11 @@ from email_notify import send_email
 # A lone challenge can clear by itself on the next run; three in a row
 # (~15 min on the launchd timer) means a human has to step in.
 BLOCKED_RUNS_BEFORE_EMAIL = 3
+
+# A single Space failing a few times can be a flaky network or a slow replay.
+# Six runs in a row (~30 min) is a broken pipeline: in Nov 2026 X's longer
+# Space IDs made every download fail ~2,900 times over three days, silently.
+SPACE_FAILURE_RUNS_BEFORE_EMAIL = 6
 
 
 def now_iso() -> str:
@@ -105,6 +111,93 @@ def discover(args, state: dict) -> list:
     if state.pop("x_blocked", None):
         log("Discovery working again — cleared the blocked-session flag")
     return urls
+
+
+def record_space_failure(state: dict, space_id: str, url: str, error: str) -> dict:
+    """Count one more consecutive failed run for this Space in state["space_failures"]."""
+    failures = state.setdefault("space_failures", {})
+    record = failures.setdefault(space_id, {"url": url, "since": now_iso(),
+                                            "runs": 0, "notified": False})
+    record["runs"] += 1
+    record["error"] = error
+    record["last_failed_at"] = now_iso()
+    log(f"  {space_id} has failed {record['runs']} run(s) in a row since {record['since']}")
+    return record
+
+
+def clear_space_failure(state: dict, space_id: str):
+    """Forget a Space's failure streak; returns the record if an alert had gone out."""
+    record = state.get("space_failures", {}).pop(space_id, None)
+    if not state.get("space_failures"):
+        state.pop("space_failures", None)
+    if record is None:
+        return None
+    log(f"{space_id} working again after {record['runs']} failed run(s)")
+    return record if record.get("notified") else None
+
+
+def prune_space_failures(state: dict, discovered_ids: set):
+    """Drop streaks for Spaces no longer on the profile — nothing will retry them.
+
+    Only called when discovery actually returned Spaces, so a blocked or empty
+    discovery run never wipes a live streak.
+    """
+    failures = state.get("space_failures", {})
+    for space_id in [sid for sid in failures if sid not in discovered_ids]:
+        log(f"{space_id} dropped off the profile — no longer tracking its failures")
+        del failures[space_id]
+    if not failures:
+        state.pop("space_failures", None)
+
+
+def notify_space_failures(state: dict):
+    """Email once per failure streak, batching every Space that crossed the threshold.
+
+    Without this a broken download step looks like a quiet week: each run logs
+    an ERROR, writes a failed run record, and no summary ever arrives. Gated on
+    `notified` so it cannot mail you every five minutes; the streak is cleared
+    when the Space succeeds (see notify_space_recovered).
+    """
+    due = {sid: r for sid, r in state.get("space_failures", {}).items()
+           if not r.get("notified") and r.get("runs", 0) >= SPACE_FAILURE_RUNS_BEFORE_EMAIL}
+    if not due:
+        return
+    n = len(due)
+    subject = (f"X Spaces processing failing — {n} Space{'s' if n != 1 else ''} — "
+               f"{datetime.now().strftime('%Y-%m-%d')}")
+    lines = [f"- {sid}: failed {r['runs']} runs in a row since {r.get('since', '')}\n"
+             f"  {r.get('url', '')}\n  Last error: {r.get('error', 'unknown')}"
+             for sid, r in due.items()]
+    intro = ("These Spaces keep failing to download or process, so no summary is "
+             "being sent for them. The scheduled run keeps retrying every 5 minutes; "
+             "check logs/ and output/<space_id>_run.json for the full error. "
+             "You'll get another email when they succeed.")
+    plain = intro + "\n\n" + "\n".join(lines)
+    items = "".join(
+        f"<li><b>{sid}</b>: failed {r['runs']} runs in a row since {escape(r.get('since', ''))}<br>"
+        f"{escape(r.get('url', ''))}<br><code>{escape(r.get('error', 'unknown'))}</code></li>"
+        for sid, r in due.items())
+    html = f"<p>{escape(intro)}</p><ul>{items}</ul>"
+    if send_email(subject, plain, html):
+        for r in due.values():
+            r["notified"] = True
+        log(f"Space-failure email sent for {', '.join(due)}")
+
+
+def notify_space_recovered(recovered: dict):
+    """One 'working again' email for Spaces whose failure alert had been sent."""
+    if not recovered:
+        return
+    subject = f"X Spaces processing working again — {datetime.now().strftime('%Y-%m-%d')}"
+    lines = [f"- {sid}: processed after {r['runs']} failed run(s) since {r.get('since', '')}"
+             for sid, r in recovered.items()]
+    plain = ("These Spaces you were alerted about have now been processed; "
+             "their summaries follow separately.\n\n" + "\n".join(lines))
+    html = ("<p>These Spaces you were alerted about have now been processed; "
+            "their summaries follow separately.</p><ul>"
+            + "".join(f"<li>{escape(l[2:])}</li>" for l in lines) + "</ul>")
+    if send_email(subject, plain, html):
+        log(f"Space-recovered email sent for {', '.join(recovered)}")
 
 
 def _inert_feature_fields() -> dict:
@@ -261,6 +354,9 @@ def run(args):
     urls = discover(args, state)
     log(f"Discovered {len(urls)} recent Space(s) on the profile")
 
+    if urls:
+        prune_space_failures(state, {extract_space_id(u) for u in urls})
+
     new_urls = [u for u in urls if extract_space_id(u) not in state["processed"]]
     to_process = list(reversed(new_urls))  # oldest-first for correct chronological order
     log(f"{len(to_process)} new Space(s) to process")
@@ -275,6 +371,7 @@ def run(args):
     claimed_stems = {entry["file_stem"]: sid for sid, entry in state["processed"].items()}
 
     deferred = 0
+    recovered = {}
     for url in to_process:
         space_id = extract_space_id(url)
         # One probe answers both questions. Before the stem, not after: the stem
@@ -348,6 +445,9 @@ def run(args):
                 "notion_sync_attempts": 0,
                 "notion_sync_last_error": None,
             }
+            was_alerted = clear_space_failure(state, space_id)
+            if was_alerted:
+                recovered[space_id] = was_alerted
             save_state(state)
             log(f"✓ Processed {space_id}")
         except SpaceNotReady as e:
@@ -359,7 +459,13 @@ def run(args):
         except Exception as e:
             log(f"ERROR processing {space_id}: {e}")
             save_run_record(OUTPUT_DIR, space_id, {"url": url, "status": "failed", "error": str(e)})
+            record_space_failure(state, space_id, url, str(e))
+            save_state(state)
             continue
+
+    if not args.dry_run:
+        notify_space_failures(state)
+        notify_space_recovered(recovered)
 
     if deferred:
         log(f"{deferred} Space(s) deferred until their replay is published")
