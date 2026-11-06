@@ -227,6 +227,111 @@ def _play_ids(page) -> list:
     return unique
 
 
+# Rows in the "Select files to download" dialog, in order of preference. The
+# Audio transcript carries speaker names; Closed Caption may not.
+DIALOG_FILE_LABELS = (
+    re.compile(r"audio\s+transcript", re.I),
+    re.compile(r"closed\s+caption", re.I),
+)
+
+
+def _download_via_dialog(page, timeout_ms: int = 60000) -> str:
+    """Use the player's own Download button and file picker (Nov 2026 player).
+
+    Zoom's unified player (nws/recording/2.0) dropped the /rec/play/vtt
+    endpoint. Its "Download" button under "Recording files" now opens a
+    "Select files to download" dialog listing each file as a checkbox row:
+
+        Recording 1
+          ☐ Shared screen with speaker view   188MB
+          ☐ Audio only                         40MB
+          ☐ Audio transcript - English(original) 84KB
+          ☐ Closed Caption                     75KB
+        File size: 0B        [Cancel] [Download]
+
+    Ticking exactly one row and pressing Download yields that single .vtt as a
+    browser download (more than one row would arrive as a zip). Returns the
+    file's text, or "" if this page has no such dialog or no transcript row.
+    """
+    import tempfile
+
+    try:
+        opener = page.get_by_role("button", name=re.compile(r"^\s*Download\s*$", re.I))
+        if opener.count() == 0:
+            opener = page.locator("button:has(.zoom-button__label)").filter(
+                has_text=re.compile(r"^\s*Download\s*$", re.I))
+        opener.first.wait_for(state="visible", timeout=20000)
+    except Exception:
+        log("No Download button on the player page")
+        return ""
+
+    for label in DIALOG_FILE_LABELS:
+        try:
+            opener.first.click()
+            dialog = page.locator("[data-testid='separate-download-dialog'], "
+                                  "[role='dialog'][aria-label*='download' i]").last
+            dialog.wait_for(state="visible", timeout=15000)
+            # The file list fills in after a download-info request, so the
+            # dialog is visible a beat before its rows exist.
+            try:
+                dialog.locator(".tree-custom-data-item-size, [role='treeitem'] [role='treeitem']"
+                               ).first.wait_for(state="visible", timeout=15000)
+            except Exception:
+                pass
+
+            row = dialog.locator("[role='treeitem']").filter(
+                has=page.locator(".tree-custom-data-item-label", has_text=label))
+            if row.count() == 0:
+                # Fall back to any tree row whose text matches.
+                row = dialog.locator("[role='treeitem']").filter(has_text=label)
+            if row.count() == 0:
+                log(f"Download dialog has no '{label.pattern}' row")
+                _close_dialog(page, dialog)
+                continue
+
+            # .last: the parent "Recording 1" node also contains the label text.
+            row = row.last
+            checkbox = row.locator(".zoom-checkbox, input[type='checkbox']").first
+            checkbox.click()
+
+            confirm = dialog.get_by_role("button", name=re.compile(r"^\s*Download", re.I))
+            confirm.wait_for(state="visible", timeout=5000)
+            if not confirm.is_enabled():
+                log("Download button stayed disabled after ticking the transcript")
+                _close_dialog(page, dialog)
+                continue
+
+            with page.expect_download(timeout=timeout_ms) as info:
+                confirm.click()
+            download = info.value
+            with tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / (download.suggested_filename or "transcript.vtt")
+                download.save_as(str(path))
+                body = path.read_text(encoding="utf-8", errors="replace")
+            if _looks_like_vtt(body):
+                log(f"Transcript via download dialog ({download.suggested_filename})")
+                return body
+            log(f"Dialog download '{download.suggested_filename}' was not a VTT file")
+        except Exception as e:
+            log(f"Download dialog attempt for '{label.pattern}' failed: {e}")
+            try:
+                page.keyboard.press("Escape")
+            except Exception:
+                pass
+    return ""
+
+
+def _close_dialog(page, dialog) -> None:
+    try:
+        dialog.get_by_role("button", name=re.compile(r"^\s*Cancel\s*$", re.I)).first.click(
+            timeout=3000)
+    except Exception:
+        try:
+            page.keyboard.press("Escape")
+        except Exception:
+            pass
+
+
 def _try_endpoints(page, captured: dict) -> str:
     """Ask for the transcript directly, then fall back to whatever the player fetched.
 
@@ -274,7 +379,8 @@ def fetch_vtt(share_url: str, passcode: str, out_dir: Path = None,
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=not headful)
         context = browser.new_context(user_agent=USER_AGENT,
-                                      viewport={"width": 1280, "height": 800})
+                                      viewport={"width": 1280, "height": 800},
+                                      accept_downloads=True)
         page = context.new_page()
         page.set_default_timeout(timeout_ms)
 
@@ -324,7 +430,9 @@ def fetch_vtt(share_url: str, passcode: str, out_dir: Path = None,
             except PWTimeout:
                 pass
 
-            vtt_text = _try_endpoints(page, captured)
+            # Current player: the Download → "Select files to download" dialog.
+            # Older player builds: the /play/vtt endpoints.
+            vtt_text = _download_via_dialog(page, timeout_ms) or _try_endpoints(page, captured)
             if not vtt_text:
                 _dump_failure(page, "novtt")
                 raise ZoomTimeout(
